@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+
+# 生成的資料檔案（僅排除程式生成的檔案，保留原始資料）
+step0_*.csv
+step0_*.html
+
+# Word 文件（可選：如果不想上傳文件）
+*.docx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 測試與暫存檔案
+_temp_*
+temp_*
+test_*.py
+
+# Logs
+*.log
