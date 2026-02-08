@@ -8,11 +8,13 @@ env/
 venv/
 .venv
 
-# 生成的資料檔案（僅排除程式生成的檔案，保留原始資料）
-step0_*.csv
+# 生成的 CSV 檔案（排除所有 CSV）
+*.csv
+
+# 生成的 HTML 報告
 step0_*.html
 
-# Word 文件（可選：如果不想上傳文件）
+# Word 文件
 *.docx
 
 # IDE
@@ -28,10 +30,12 @@ Thumbs.db
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# 測試與暫存檔案
+# 暫存檔案
 _temp_*
 temp_*
-test_*.py
 
 # Logs
 *.log
+
+# 臨時文字檔
+vix_content_utf8.txt

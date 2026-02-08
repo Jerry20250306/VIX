@@ -711,8 +711,8 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         4. target_time="HHMMSS": 只處理單一時間點（預設 "120015"）
     """
     # 設定參數
-    raw_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\J002-11300041_20251231\temp"
-    prod_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\20251231"
+    raw_dir = r"c:\AGY\VIX\VIX\資料來源\J002-11300041_20251231\temp"
+    prod_dir = r"c:\AGY\VIX\VIX\資料來源\20251231"
     target_date = "20251231"
     
     # 決定處理模式
@@ -927,8 +927,8 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         print(f"整合報表已儲存至: {integrated_output}")
 
 if __name__ == "__main__":
-    # 測試前5個時間區間
-    main(max_time_points=5)
+    # 全天處理
+    main(process_all_times=True)
     
     # 其他測試模式：
     # main(max_time_points=1)            # 測試第1個時間點

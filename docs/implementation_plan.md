@@ -29,36 +29,38 @@
 
 - **`VixCalculator` 類別**:
     - **`calculate_term_sigma(snapshots_df, forward_df, R, T)`**:
-        - **Step 0: 序列價格篩選 (Series-Level Filtering) [依據附錄 3]**:
+        - **Step 0: 序列價格篩選 (Series-Level Filtering) [依據附錄 3 與 spec.md]**:
             - **步驟一：獲取序列有效報價 (Valid Quote 資訊)**:
                 - 定義候選報價：
-                    - $Q(t)_{last}$: 時間點 $t$ 前最後一筆報價 (Latest Quote)。
-                    - $Q(t)_{latest}$: 時間點 $t$ 前 15 秒內，買賣價差最小且時間最晚之報價 (Min Spread Quote)。
+                    - `Q_Last_Valid_t`: 時間點 t 前最後一筆報價，且已通過有效性檢查。
+                    - `Q_Min_Valid_t`: 時間點 t 前 15 秒內，買賣價差最小且時間最晚之報價，且已通過有效性檢查。
                 - 檢查有效性 (Validity Check)：
-                    - 買價 ($Bid$) 與賣價 ($Ask$) 須為數值。
-                    - $Bid \ge 0$ 且 $Ask > Bid$。
+                    - 買價 (Bid) 與賣價 (Ask) 須為數值。
+                    - Bid >= 0 且 Ask > Bid。
             - **步驟二：判斷報價是否為「異常值」 (Outlier Detection)**:
-                - **計算價差 EMA (Exponential Moving Average)**：
-                    - **參數**：$\alpha = 0.95$ (Alpha，用於 EMA 計算)
+                - **2.1 計算價差 EMA (Exponential Moving Average)**：
+                    - **參數**：alpha = 0.95
                     - **遞迴公式**：
-                        - 若 $EMA_{t-1}$ 為 null（第一次計算）：$EMA_t = Q_{Min\_Valid\_Spread}$
-                        - 若 $Q_{Min\_Valid}$ 為 null（當前無有效報價）：$EMA_t = EMA_{t-1}$
-                        - 正常情況：$EMA_t = (1-\alpha)EMA_{t-1} + \alpha \times Q_{Min\_Valid\_Spread} = 0.05 \times EMA_{t-1} + 0.95 \times Q_{Min\_Valid\_Spread}$
-                    - **初始值**：若第1個時間區間無有效報價 → $EMA_0 = null$
-                - **決定與標記異常值 (Flag Outliers)**：
-                    - 決定參數 $\gamma$ ($\gamma_0=1.2, \gamma_1=2.0, \gamma_2=2.5$)：
-                        - 若 $Q(t-1)_{Bid} = 0$ → $\gamma = \gamma_0$
-                        - 若 $Q(t-1)_{Bid} > 0$ 且 $Q(t-1)_{Mid} \le \gamma_1$ → $\gamma = \gamma_1$
-                        - 若 $Q(t-1)_{Bid} > 0$ 且 $Q(t-1)_{Mid} > \gamma_1$ → $\gamma = \gamma_2$
-                    - 檢核是否符合「非異常值」條件（符合任一即為非異常值）：
-                        - **Condition i**: $Spread \le S_{max}$ (其中 $S_{max} = \alpha = 0.95$)
-                        - **Condition ii**: $Spread \le EMA_t \times \gamma$
-                        - **Condition iii**: $Spread \le EMA_{t-1} \times \gamma$
-                        - **Condition iv**: $Bid > 0$ 且 $Mid \le \gamma$
+                        - 若 EMA_t-1 為 null（第一次計算）：EMA_t = Spread(Q_Min_Valid_t)
+                        - 若 Q_Min_Valid_t 為 null（當前無有效報價）：EMA_t = EMA_t-1
+                        - 正常情況：EMA_t = 0.05 × EMA_t-1 + 0.95 × Spread(Q_Min_Valid_t)
+                    - **初始值**：若第1個時間區間無有效報價 → EMA_0 = null
+                - **2.2 決定 Gamma (γ)**：
+                    - Q_Last_Valid_t 與 Q_Min_Valid_t 各自獨立計算 gamma，參考對象為 Q_hat_Mid_t-1：
+                        - 若 Bid_t > 0 且 Mid_t <= Q_hat_Mid_t-1 → γ = γ1 (2.0)
+                        - 若 Bid_t > 0 且 Mid_t > Q_hat_Mid_t-1 → γ = γ2 (2.5)
+                        - 若 Bid_t = 0 → γ = γ0 (1.2)
+                - **2.3 異常判定條件 (符合任一即為非異常值)**：
+                    - Condition 1: Spread <= gamma × EMA_t
+                    - Condition 2: Spread < lambda (lambda = 0.5)
+                    - Condition 3: Bid_t > Q_hat_Mid_t-1 (買價突破上一期中價)
+                    - Condition 4: Ask_t < Q_hat_Mid_t-1 且 Bid_t > 0 (賣價跌破上一期中價)
+                    - **例外**：若為當日第一筆資料或 Q_hat_Mid_t-1 為 null，則視為非異常值。
             - **步驟三：篩選後報價之決定 (Determine Filtered Quotes)**:
-                - **優先順序 1**: 若 $Q(t)_{last}$ 為有效且非異常值 $\rightarrow$ 採用 $Q(t)_{last}$ (My_Last)。
-                - **優先順序 2**: 若 $Q(t)_{last}$ 為異常，但 $Q(t)_{latest}$ 為雙邊且非異常 $\rightarrow$ 採用 $Q(t)_{latest}$ (My_Min)。
-                - **優先順序 3**: 若上述皆不符 $\rightarrow$ 採用前一筆篩選結果 $Q(t-1)$ (Replacement)。
+                - **優先順序 1**: 若 Q_Last_Valid_t 為非 Null 且非異常值 → Q_hat_t = Q_Last_Valid_t
+                - **優先順序 2**: 若 Q_Last_Valid_t 為異常值或 Null，但 Q_Min_Valid_t 有雙邊報價且非異常值 → Q_hat_t = Q_Min_Valid_t
+                - **優先順序 3**: 若上述皆不符 → Q_hat_t = Q_hat_t-1 (沿用上一次的結果)
+
         - **Step 1: 履約價篩選 (Strike Selection)**:
             - 根據 `forward_df` 中的 $K_0$ (ATM Strike) 向外篩選。
             - 應用「連續兩檔零買價」的截斷規則 (Zero Bid Truncation Rule)。（需確認台指 VIX 是否完全參照此 Cboe 規則）。
