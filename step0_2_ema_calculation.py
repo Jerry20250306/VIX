@@ -23,7 +23,7 @@ Step 0 步驟二與步驟三：異常值偵測 + 篩選後報價決定
   - Q_hat:        最終篩選後決定的報價（步驟三的輸出）
   - EMA:          指數移動平均（Exponential Moving Average）
   - Gamma (γ):    異常值判定的寬容度係數
-  - Lambda (λ):   最大允許價差門檻（0.5 點）
+  - Lambda (λ):   最大允許價差門檻（15 點）
 
 【符號後綴說明】
   - _t:    表示「當前時間點」的數值
@@ -49,7 +49,7 @@ ALPHA = 0.95    # EMA 平滑係數（歷史 EMA 權重為 95%，當前價差的�
 GAMMA_0 = 1.2   # 基礎寬容度：當 Bid = 0 時使用（例如：深度價外選擇權）
 GAMMA_1 = 1.5   # 中價下降寬容度：當 Bid > 0 且 Mid_t <= Q_hat_Mid_t-1 時使用
 GAMMA_2 = 2.0   # 中價上升寬容度：當 Bid > 0 且 Mid_t > Q_hat_Mid_t-1 時使用
-LAMBDA = 0.5    # 最大允許價差（點數）：Spread < 0.5 點一律視為非異常值
+LAMBDA = 15      # 最大允許價差（點數）：Spread < 15 點一律視為非異常值
 
 
 # ==============================================================================
@@ -355,10 +355,10 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
             cond_1 = True
             return False, f"Condition 1：Spread({spread_val}) <= γ({gamma}) × EMA_t({ema_t_val:.4f}) = {threshold_1:.4f}", cond_1, cond_2, cond_3, cond_4
     
-    # ===== Condition 2：Spread < λ =====
-    if spread_val < LAMBDA:
+    # ===== Condition 2：Spread <= λ =====
+    if spread_val <= LAMBDA:
         cond_2 = True
-        return False, f"Condition 2：Spread({spread_val}) < λ({LAMBDA})", cond_1, cond_2, cond_3, cond_4
+        return False, f"Condition 2：Spread({spread_val}) <= λ({LAMBDA})", cond_1, cond_2, cond_3, cond_4
     
     # ===== Condition 3 & 4 需要 Bid 和 Ask =====
     if is_valid_value(bid):
