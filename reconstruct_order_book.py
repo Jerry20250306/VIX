@@ -334,65 +334,168 @@ class SnapshotReconstructor:
         """
         重建特定時間點的委託簿快照 (Dual Strategy)。
         
-        【重要】Q_Last 和 Q_Min 的搜尋範圍相同：
-        prev_sys_id < SeqNo <= target_sys_id
-        (即：兩個快照時間點之間的報價)
+        ========================================================================
+        【SeqNo 區間邏輯】(per-product, 每個商品獨立計算)
+        ========================================================================
+        
+        區間定義：[prev_last_seq, target_last_seq]（兩端都包含）
+        
+        - prev_last_seq = 該商品在 SeqNo <= prev_sys_id 中的「最後一筆」的 SeqNo
+        - target_last_seq = 該商品在 SeqNo <= target_sys_id 中的「最後一筆」的 SeqNo
+        
+        ========================================================================
+        【舉例】
+        ========================================================================
+        
+        假設某商品 TXO27000A6 有以下報價：
+        
+            SeqNo   Bid    Ask    Spread
+            -----   ----   ----   ------
+            20000   100    105    5
+            25000   101    106    5       <-- prev_sys_id=22934 時，這筆 SeqNo > 22934
+            35000   102    104    2       <-- 最小 Spread
+            50000   103    108    5       <-- target_sys_id=57695 時的最後一筆
+        
+        情況 1: prev_sys_id=22934, target_sys_id=57695
+        
+            - prev_last_seq = 20000 (SeqNo <= 22934 的最後一筆)
+            - target_last_seq = 50000 (SeqNo <= 57695 的最後一筆)
+            - 區間 = [20000, 50000]，包含 4 筆報價
+            - Q_Last = SeqNo 50000 (Bid=103, Ask=108)
+            - Q_Min = SeqNo 35000 (Bid=102, Ask=104, Spread=2)
+        
+        情況 2: prev_sys_id=57695, target_sys_id=87592 (下一個時間點)
+        
+            - prev_last_seq = 50000 (SeqNo <= 57695 的最後一筆)
+            - 如果 57695~87592 間沒有新報價，區間只有 SeqNo=50000 這一筆
+            - Q_Last = Q_Min = 都是 SeqNo 50000 那筆
+        
+        ========================================================================
         
         策略 1: My_Last (Latest Quote)
-            - 在區間內找「最新」的報價 (SeqNo 最大)
+            - 在區間 [prev_last_seq, target_last_seq] 內，取 SeqNo 最大的報價
+            - 即 target_last_seq 那一筆
             
         策略 2: My_Min (Min Spread)
-            - 在區間內找「Spread 最小」的報價
+            - 在區間 [prev_last_seq, target_last_seq] 內，取 Spread 最小的報價
+            - 若 Spread 相同，取 SeqNo 最大的（最新的）
             
         Args:
             target_time_obj: 目標時間 (datetime)
             target_sys_id: 當前快照的 SysID (SeqNo 上限)
-            prev_sys_id: 前一個快照的 SysID (SeqNo 下限，預設為 0)
+            prev_sys_id: 前一個快照的 SysID (用於計算區間起始，預設為 0)
+            
+        Returns:
+            DataFrame with columns:
+            - Strike, CP: 商品識別
+            - My_Last_Bid/Ask/SysID/Time/ProdID: 最新報價資訊
+            - My_Min_Bid/Ask/Spread: 最小 Spread 報價資訊
         """
-        # 篩選區間: prev_sys_id <= SeqNo <= target_sys_id (包含兩端)
-        candidates = self.ticks_df[
-            (self.ticks_df['svel_i081_seqno'] >= prev_sys_id) &
-            (self.ticks_df['svel_i081_seqno'] <= target_sys_id)
-        ].copy()
         
-        if candidates.empty:
-            # 區間內無報價 → Q_Last 和 Q_Min 都是 null
+        # =====================================================================
+        # Step 1: 篩選 SeqNo <= target_sys_id 的所有報價
+        # =====================================================================
+        # 這是搜尋的基礎資料集，包含截至 target_sys_id 為止的所有歷史報價
+        all_leq_target = self.ticks_df[self.ticks_df['svel_i081_seqno'] <= target_sys_id].copy()
+        
+        if all_leq_target.empty:
             return pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
                                          'My_Last_SysID', 'My_Last_Time', 'My_Last_ProdID',
                                          'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread'])
 
-        # 計算 Spread (通用)
-        candidates['Spread'] = candidates['svel_i081_best_sell_price1'] - candidates['svel_i081_best_buy_price1']
-        # 處理單邊報價 (Bid=0 或 Ask=0)
-        no_quote_mask = (candidates['svel_i081_best_buy_price1'] == 0) | (candidates['svel_i081_best_sell_price1'] == 0)
-        candidates.loc[no_quote_mask, 'Spread'] = 999999
+        # 計算 Spread = Ask - Bid
+        # 單邊報價 (Bid=0 或 Ask=0) 視為無效，給予極大 Spread 值
+        all_leq_target['Spread'] = all_leq_target['svel_i081_best_sell_price1'] - all_leq_target['svel_i081_best_buy_price1']
+        no_quote_mask = (all_leq_target['svel_i081_best_buy_price1'] == 0) | (all_leq_target['svel_i081_best_sell_price1'] == 0)
+        all_leq_target.loc[no_quote_mask, 'Spread'] = 999999
         
-        # === 策略 1: My_Last (區間內最新報價) ===
-        last_candidates = candidates.sort_values(by=['svel_i081_seqno'], ascending=False)
-        snapshot_last = last_candidates.drop_duplicates(subset=['Strike', 'CP'], keep='first').copy()
+        # =====================================================================
+        # Step 2: 找每個 Strike/CP 在 SeqNo <= prev_sys_id 的「最後一筆」SeqNo
+        # =====================================================================
+        # 這個 SeqNo 就是區間的起始點 (包含)
+        # 例如: prev_sys_id=22934，某商品在 SeqNo=20000 有報價，則 prev_last_seq=20000
+        all_leq_prev = self.ticks_df[self.ticks_df['svel_i081_seqno'] <= prev_sys_id].copy()
         
-        # === 策略 2: My_Min (區間內 Spread 最小) ===
-        # 排序: Spread Asc, SeqNo Desc (Spread 相同取最新的)
-        min_candidates = candidates.sort_values(by=['Spread', 'svel_i081_seqno'], ascending=[True, False])
-        snapshot_min = min_candidates.drop_duplicates(subset=['Strike', 'CP'], keep='first').copy()
+        if all_leq_prev.empty:
+            # 沒有 prev 之前的報價 → 區間起始 = 0 (該商品的所有報價都算)
+            prev_last_seq_map = {}
+        else:
+            # 對每個 Strike/CP 找最後一筆 (SeqNo 最大)
+            prev_sorted = all_leq_prev.sort_values(by=['svel_i081_seqno'], ascending=False)
+            prev_last = prev_sorted.drop_duplicates(subset=['Strike', 'CP'], keep='first')
+            # 建立 (Strike, CP) -> prev_last_seq 的 mapping
+            # 例如: {('27000', 'Call'): 20000, ('27100', 'Put'): 18500, ...}
+            prev_last_seq_map = prev_last.set_index(['Strike', 'CP'])['svel_i081_seqno'].to_dict()
         
-        # === 合併結果 ===
-        snapshot_last = snapshot_last[['Strike', 'CP', 'svel_i081_best_buy_price1', 'svel_i081_best_sell_price1', 'svel_i081_seqno', 'svel_i081_time', 'svel_i081_prod_id']].rename(columns={
-            'svel_i081_best_buy_price1': 'My_Last_Bid',
-            'svel_i081_best_sell_price1': 'My_Last_Ask',
-            'svel_i081_seqno': 'My_Last_SysID',
-            'svel_i081_time': 'My_Last_Time',
-            'svel_i081_prod_id': 'My_Last_ProdID'
-        })
+        # =====================================================================
+        # Step 3: 對每個商品，在區間 [prev_last_seq, target_last_seq] 內搜尋
+        # =====================================================================
+        last_results = []  # 儲存 Q_Last 結果
+        min_results = []   # 儲存 Q_Min 結果
         
-        snapshot_min = snapshot_min[['Strike', 'CP', 'svel_i081_best_buy_price1', 'svel_i081_best_sell_price1', 'Spread']].rename(columns={
-            'svel_i081_best_buy_price1': 'My_Min_Bid',
-            'svel_i081_best_sell_price1': 'My_Min_Ask',
-            'Spread': 'My_Min_Spread'
-        })
+        for (strike, cp), group in all_leq_target.groupby(['Strike', 'CP']):
+            # 取得該商品的區間起始 (prev_last_seq)
+            # 如果這個商品在 prev_sys_id 之前沒有報價，則從 0 開始 (所有報價都算)
+            prev_last_seq = prev_last_seq_map.get((strike, cp), 0)
+            
+            # 篩選區間內的報價: SeqNo >= prev_last_seq
+            # 注意: 這裡是 >= 不是 >，因為要「包含」prev_last_seq 那一筆
+            in_range = group[group['svel_i081_seqno'] >= prev_last_seq]
+            
+            if in_range.empty:
+                # 理論上不應該發生，因為 prev_last_seq 本身就在 group 內
+                continue
+            
+            # -----------------------------------------------------------------
+            # Q_Last: 區間內 SeqNo 最大的報價 (即 target_last_seq 那筆)
+            # -----------------------------------------------------------------
+            last_row = in_range.sort_values(by=['svel_i081_seqno'], ascending=False).iloc[0]
+            last_results.append({
+                'Strike': strike,
+                'CP': cp,
+                'My_Last_Bid': last_row['svel_i081_best_buy_price1'],
+                'My_Last_Ask': last_row['svel_i081_best_sell_price1'],
+                'My_Last_SysID': last_row['svel_i081_seqno'],
+                'My_Last_Time': last_row['svel_i081_time'],
+                'My_Last_ProdID': last_row['svel_i081_prod_id']
+            })
+            
+            # -----------------------------------------------------------------
+            # Q_Min: 區間內 Spread 最小的報價
+            # 若 Spread 相同，取 SeqNo 最大的 (最新的)
+            # -----------------------------------------------------------------
+            in_range_sorted = in_range.sort_values(
+                by=['Spread', 'svel_i081_seqno'], 
+                ascending=[True, False]  # Spread 升序, SeqNo 降序
+            )
+            min_row = in_range_sorted.iloc[0]
+            
+            min_results.append({
+                'Strike': strike,
+                'CP': cp,
+                'My_Min_Bid': min_row['svel_i081_best_buy_price1'],
+                'My_Min_Ask': min_row['svel_i081_best_sell_price1'],
+                'My_Min_Spread': min_row['Spread']
+            })
         
-        # Merge: 兩者搜尋範圍相同，應該都有值或都沒有
-        result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
+        # =====================================================================
+        # Step 4: 合併 Q_Last 和 Q_Min 結果
+        # =====================================================================
+        snapshot_last = pd.DataFrame(last_results)
+        snapshot_min = pd.DataFrame(min_results)
+        
+        if snapshot_last.empty:
+            return pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
+                                         'My_Last_SysID', 'My_Last_Time', 'My_Last_ProdID',
+                                         'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread'])
+        
+        if snapshot_min.empty:
+            result = snapshot_last
+            result['My_Min_Bid'] = np.nan
+            result['My_Min_Ask'] = np.nan
+            result['My_Min_Spread'] = np.nan
+        else:
+            result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
         
         return result
 
