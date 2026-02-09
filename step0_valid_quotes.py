@@ -455,6 +455,7 @@ def generate_validity_report(snapshot_df, term_name, target_time, snapshot_sysid
         q_min_bid = row['My_Min_Bid']
         q_min_ask = row['My_Min_Ask']
         q_min_spread = row['My_Min_Spread']
+        q_min_sysid = row.get('My_Min_SysID', np.nan)  # 新增：Q_Min 的系統序號
         
         # 檢查 Q_last 有效性
         q_last_valid, q_last_reason = check_valid_quote(q_last_bid, q_last_ask)
@@ -522,6 +523,7 @@ def generate_validity_report(snapshot_df, term_name, target_time, snapshot_sysid
             'Q_Min_Valid_Ask': q_min_valid_ask,
             'Q_Min_Valid_Spread': q_min_valid_spread,
             'Q_Min_Valid_Mid': q_min_valid_mid,
+            'Q_min_SysID': q_min_sysid,  # 新增：Q_Min 的系統序號
         })
     
     report_df = pd.DataFrame(report_rows)
@@ -710,9 +712,9 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         3. end_time="HHMMSS": 處理從第一個時間點到 end_time（包含）
         4. target_time="HHMMSS": 只處理單一時間點（預設 "120015"）
     """
-    # 設定參數
-    raw_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\J002-11300041_20251231\temp"
-    prod_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\20251231"
+    # 設定參數 - 使用相對路徑
+    raw_dir = r"資料來源\J002-11300041_20251231\temp"
+    prod_dir = r"資料來源\20251231"
     target_date = "20251231"
     
     # 決定處理模式
@@ -816,6 +818,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
                     q_min_bid = row['My_Min_Bid']
                     q_min_ask = row['My_Min_Ask']
                     q_min_spread = row['My_Min_Spread']
+                    q_min_sysid = row.get('My_Min_SysID', np.nan)  # 新增：Q_Min 的系統序號
                     
                     
                     q_last_valid, q_last_reason = check_valid_quote(q_last_bid, q_last_ask)
@@ -872,6 +875,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
                         'Q_Min_Valid_Ask': q_min_valid_ask,
                         'Q_Min_Valid_Spread': q_min_valid_spread,
                         'Q_Min_Valid_Mid': q_min_valid_mid,
+                        'Q_min_SysID': q_min_sysid,  # 新增：Q_Min 的系統序號
                     })
                 
                 report_df = pd.DataFrame(report_rows)

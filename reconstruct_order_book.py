@@ -475,7 +475,8 @@ class SnapshotReconstructor:
                 'CP': cp,
                 'My_Min_Bid': min_row['svel_i081_best_buy_price1'],
                 'My_Min_Ask': min_row['svel_i081_best_sell_price1'],
-                'My_Min_Spread': min_row['Spread']
+                'My_Min_Spread': min_row['Spread'],
+                'My_Min_SysID': min_row['svel_i081_seqno']  # 新增：Q_Min 的系統序號
             })
         
         # =====================================================================
@@ -487,13 +488,14 @@ class SnapshotReconstructor:
         if snapshot_last.empty:
             return pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
                                          'My_Last_SysID', 'My_Last_Time', 'My_Last_ProdID',
-                                         'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread'])
+                                         'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread', 'My_Min_SysID'])
         
         if snapshot_min.empty:
             result = snapshot_last
             result['My_Min_Bid'] = np.nan
             result['My_Min_Ask'] = np.nan
             result['My_Min_Spread'] = np.nan
+            result['My_Min_SysID'] = np.nan
         else:
             result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
         

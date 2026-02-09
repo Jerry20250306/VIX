@@ -657,5 +657,206 @@ def main():
     print(next_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
 
 
+# ==============================================================================
+# PROD 格式輸出轉換（只調整輸出格式，不動計算邏輯）
+# ==============================================================================
+
+def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4):
+    """
+    將異常值標記轉換為 PROD 格式
+    
+    【轉換規則】
+    - 無資料或無法判定 → "-"
+    - 是異常值 (True) → "V" (Violation)
+    - 非異常值 (False) → 輸出符合的條件編號，如 "1", "2", "1,2" 等
+    
+    Args:
+        is_outlier: 是否為異常值 (True/False/None)
+        cond_1~4: 各條件是否通過
+        
+    Returns:
+        str: PROD 格式的異常值標記
+    """
+    # 無資料情況
+    if is_outlier is None or pd.isna(is_outlier):
+        return "-"
+    
+    # 異常值
+    if is_outlier == True:
+        return "V"
+    
+    # 非異常值：輸出符合的條件編號
+    passed_conds = []
+    if cond_1:
+        passed_conds.append("1")
+    if cond_2:
+        passed_conds.append("2")
+    if cond_3:
+        passed_conds.append("3")
+    if cond_4:
+        passed_conds.append("4")
+    
+    if passed_conds:
+        return ",".join(passed_conds)
+    else:
+        # 非異常值但沒有任何條件通過（理論上不應該發生）
+        return "-"
+
+
+def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
+    """
+    將計算結果轉換為 PROD 格式
+    
+    【格式變更】
+    - 一列 = (Time, Strike)，Call/Put 合併
+    - 欄位使用 c./p. 前綴
+    - Outlier 標記改為字串格式
+    
+    【注意】此函式只處理輸出格式，不動任何計算邏輯
+    
+    Args:
+        df: 計算結果 DataFrame（包含 CP 欄位區分 Call/Put）
+        snapshot_sysid_col: snapshot_sysID 欄位名稱
+        
+    Returns:
+        DataFrame: PROD 格式的輸出
+    """
+    # 分離 Call 和 Put
+    call_df = df[df['CP'] == 'Call'].copy()
+    put_df = df[df['CP'] == 'Put'].copy()
+    
+    # 轉換 Outlier 標記（Call）
+    call_df['c.last_outlier'] = call_df.apply(
+        lambda row: convert_outlier_to_prod_format(
+            row.get('Q_Last_Valid_Is_Outlier'),
+            row.get('Q_Last_Valid_Cond_1'),
+            row.get('Q_Last_Valid_Cond_2'),
+            row.get('Q_Last_Valid_Cond_3'),
+            row.get('Q_Last_Valid_Cond_4')
+        ), axis=1
+    )
+    call_df['c.min_outlier'] = call_df.apply(
+        lambda row: convert_outlier_to_prod_format(
+            row.get('Q_Min_Valid_Is_Outlier'),
+            row.get('Q_Min_Valid_Cond_1'),
+            row.get('Q_Min_Valid_Cond_2'),
+            row.get('Q_Min_Valid_Cond_3'),
+            row.get('Q_Min_Valid_Cond_4')
+        ), axis=1
+    )
+    
+    # 轉換 Outlier 標記（Put）
+    put_df['p.last_outlier'] = put_df.apply(
+        lambda row: convert_outlier_to_prod_format(
+            row.get('Q_Last_Valid_Is_Outlier'),
+            row.get('Q_Last_Valid_Cond_1'),
+            row.get('Q_Last_Valid_Cond_2'),
+            row.get('Q_Last_Valid_Cond_3'),
+            row.get('Q_Last_Valid_Cond_4')
+        ), axis=1
+    )
+    put_df['p.min_outlier'] = put_df.apply(
+        lambda row: convert_outlier_to_prod_format(
+            row.get('Q_Min_Valid_Is_Outlier'),
+            row.get('Q_Min_Valid_Cond_1'),
+            row.get('Q_Min_Valid_Cond_2'),
+            row.get('Q_Min_Valid_Cond_3'),
+            row.get('Q_Min_Valid_Cond_4')
+        ), axis=1
+    )
+    
+    # Call 欄位重命名
+    call_rename = {
+        'EMA': 'c.ema',
+        'Q_Last_Valid_Gamma': 'c.gamma',
+        'Q_Last_Valid_Bid': 'c.last_bid',
+        'Q_Last_Valid_Ask': 'c.last_ask',
+        'Q_last_SysID': 'c.last_sysID',
+        'Q_Min_Valid_Bid': 'c.min_bid',
+        'Q_Min_Valid_Ask': 'c.min_ask',
+        'Q_min_SysID': 'c.min_sysID',
+        'Q_hat_Bid': 'c.bid',
+        'Q_hat_Ask': 'c.ask',
+        'Q_hat_Source': 'c.source',
+    }
+    
+    # Put 欄位重命名
+    put_rename = {
+        'EMA': 'p.ema',
+        'Q_Last_Valid_Gamma': 'p.gamma',
+        'Q_Last_Valid_Bid': 'p.last_bid',
+        'Q_Last_Valid_Ask': 'p.last_ask',
+        'Q_last_SysID': 'p.last_sysID',
+        'Q_Min_Valid_Bid': 'p.min_bid',
+        'Q_Min_Valid_Ask': 'p.min_ask',
+        'Q_min_SysID': 'p.min_sysID',
+        'Q_hat_Bid': 'p.bid',
+        'Q_hat_Ask': 'p.ask',
+        'Q_hat_Source': 'p.source',
+    }
+    
+    # 選擇需要的欄位（Call）
+    call_cols = ['Time', 'Strike', snapshot_sysid_col, 
+                 'c.ema', 'c.gamma', 
+                 'c.last_bid', 'c.last_ask', 'c.last_sysID', 'c.last_outlier',
+                 'c.min_bid', 'c.min_ask', 'c.min_sysID', 'c.min_outlier',
+                 'c.bid', 'c.ask', 'c.source']
+    
+    # 選擇需要的欄位（Put）
+    put_cols = ['Time', 'Strike', 
+                'p.ema', 'p.gamma',
+                'p.last_bid', 'p.last_ask', 'p.last_sysID', 'p.last_outlier',
+                'p.min_bid', 'p.min_ask', 'p.min_sysID', 'p.min_outlier',
+                'p.bid', 'p.ask', 'p.source']
+    
+    # 重命名欄位
+    call_df = call_df.rename(columns=call_rename)
+    put_df = put_df.rename(columns=put_rename)
+    
+    # 處理可能不存在的欄位
+    for col in call_cols:
+        if col not in call_df.columns:
+            call_df[col] = np.nan
+    for col in put_cols:
+        if col not in put_df.columns:
+            put_df[col] = np.nan
+    
+    call_df = call_df[call_cols]
+    put_df = put_df[put_cols]
+    
+    # 重命名共用欄位
+    call_df = call_df.rename(columns={snapshot_sysid_col: 'snapshot_sysID'})
+    call_df = call_df.rename(columns={'Time': 'time', 'Strike': 'strike'})
+    put_df = put_df.rename(columns={'Time': 'time', 'Strike': 'strike'})
+    
+    # 合併 Call 和 Put
+    output_df = pd.merge(
+        call_df, 
+        put_df, 
+        on=['time', 'strike'], 
+        how='outer'
+    )
+    
+    # 排序
+    output_df = output_df.sort_values(['time', 'strike']).reset_index(drop=True)
+    
+    return output_df
+
+
+def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID'):
+    """
+    將計算結果以 PROD 格式儲存
+    
+    Args:
+        df: 計算結果 DataFrame
+        output_path: 輸出路徑
+        snapshot_sysid_col: snapshot_sysID 欄位名稱
+    """
+    prod_df = convert_to_prod_format(df, snapshot_sysid_col)
+    prod_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    print(f"PROD 格式已儲存: {output_path}")
+    return prod_df
+
+
 if __name__ == "__main__":
     main()
