@@ -47,8 +47,8 @@ import os
 
 ALPHA = 0.95    # EMA 平滑係數（歷史 EMA 權重為 95%，當前價差的權重為 5%）
 GAMMA_0 = 1.2   # 基礎寬容度：當 Bid = 0 時使用（例如：深度價外選擇權）
-GAMMA_1 = 2.0   # 中價下降寬容度：當 Bid > 0 且 Mid_t <= Q_hat_Mid_t-1 時使用
-GAMMA_2 = 2.5   # 中價上升寬容度：當 Bid > 0 且 Mid_t > Q_hat_Mid_t-1 時使用
+GAMMA_1 = 1.5   # 中價下降寬容度：當 Bid > 0 且 Mid_t <= Q_hat_Mid_t-1 時使用
+GAMMA_2 = 2.0   # 中價上升寬容度：當 Bid > 0 且 Mid_t > Q_hat_Mid_t-1 時使用
 LAMBDA = 0.5    # 最大允許價差（點數）：Spread < 0.5 點一律視為非異常值
 
 
@@ -158,16 +158,18 @@ def calculate_ema_for_series(time_series_df):
         # 檢查價差是否為 null（無有效報價）
         is_null = (spread == "null" or pd.isna(spread))
         
+        # [移除 Fallback] 嚴格遵守 Spec：EMA 只使用 Q_Min_Valid_Spread
+        # 如果 Q_Min 為 null，EMA 維持不變（或初始化為 null）
+            
         if prev_ema is None:
-            # ===== 情況 1：第一次計算（無前一時點 EMA）=====
             if is_null:
                 # 第一筆就沒有有效報價 → EMA 也設為 null
                 ema = "null"
-                process = "初始值：Q_Min_Valid 為 null → EMA = null"
+                process = "初始值：Q_Min/Q_Last 為 null → EMA = null"
             else:
                 # 第一筆有有效報價 → 直接用該價差作為 EMA 初始值
                 ema = float(spread)
-                process = f"初始值：EMA_0 = Q_Min_Valid_Spread = {spread}"
+                process = f"初始值：EMA_0 = Spread = {spread}"
         else:
             # ===== 有前一時點的 EMA =====
             if prev_ema == "null":
@@ -175,17 +177,17 @@ def calculate_ema_for_series(time_series_df):
                 if is_null:
                     # 前面和現在都沒有有效報價 → 繼續維持 null
                     ema = "null"
-                    process = "EMA_t-1 為 null，Q_Min_Valid 也為 null → EMA_t = null"
+                    process = "EMA_t-1 為 null，Q_Min/Q_Last 也為 null → EMA_t = null"
                 else:
                     # 前面沒有但現在有 → 用現在的價差作為新的 EMA 起點
                     ema = float(spread)
-                    process = f"EMA_t-1 為 null → EMA_t = Q_Min_Valid_Spread = {spread}"
+                    process = f"EMA_t-1 為 null → EMA_t = Spread = {spread}"
             else:
                 # 前一時點 EMA 有有效值
                 if is_null:
                     # ===== 情況 2：當前無有效報價 → EMA 維持不變 =====
                     ema = prev_ema
-                    process = f"Q_Min_Valid 為 null → EMA_t = EMA_t-1 = {prev_ema:.6f}"
+                    process = f"Q_Min/Q_Last 為 null → EMA_t = EMA_t-1 = {prev_ema:.6f}"
                 else:
                     # ===== 情況 3：正常計算 =====
                     # EMA_t = alpha × EMA_t-1 + (1 - alpha) × Spread_t
@@ -258,8 +260,8 @@ def determine_gamma(current_bid, current_mid, Q_hat_Mid_t_minus_1):
     
     # 檢查前一時點的 Q_hat_Mid 是否有效
     if not is_valid_value(Q_hat_Mid_t_minus_1):
-        # 第一筆資料或前面沒有篩選結果 → 使用預設 γ₀
-        return GAMMA_0, f"Bid_t = {bid_val} > 0，但 Q_hat_Mid_t-1 為 null（可能是第一筆）→ γ = γ₀ = {GAMMA_0}"
+        # 第一筆資料（如 084515）或前面沒有篩選結果 → 使用 γ₂（2.0）符合 PROD 行為
+        return GAMMA_2, f"Bid_t = {bid_val} > 0，但 Q_hat_Mid_t-1 為 null（可能是第一筆 084515）→ γ = γ₂ = {GAMMA_2}"
     
     mid_val = float(current_mid)
     prev_mid_val = float(Q_hat_Mid_t_minus_1)
@@ -332,6 +334,14 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
     # ===== 例外情況 2：Q_hat_Mid_t-1 為 null（第一筆資料）=====
     if not is_valid_value(Q_hat_Mid_t_minus_1):
         return False, "Q_hat_Mid_t-1 為 null（第一筆資料）→ 視為非異常值", False, False, False, False
+    
+    # ===== 例外情況 3：EMA_t-1 為 null =====
+    # 依據 Spec：若前一期的 EMA 為 null（例如第一筆資料或連續無報價），則直接視為非異常值
+    # 注意：這裡 ema_t 實際上是計算當期時使用的 EMA，但在第一筆資料時 EMA 會是 null
+    # 因為 EMA 的計算邏輯是：先用 prev_ema 算 Gamma/Outlier，再更新 EMA
+    # 所以當 ema_t 為 null 時，代表前一期沒有有效 EMA，等同於 EMA_t-1 為 null
+    if not is_valid_value(ema_t):
+        return False, "EMA_t-1 為 null → 視為非異常值", False, False, False, False
     
     # 轉換為數值進行比較
     spread_val = float(spread)
@@ -481,6 +491,14 @@ def add_ema_and_outlier_detection(df, term_name):
             result_df.at[idx, 'Q_Min_Valid_Gamma'] = gamma_min
             result_df.at[idx, 'Gamma_Process'] = gamma_min_process
             
+            # [修正] 決定最終報告的 Gamma (Reported Gamma)
+            # PROD 似乎優先報告 Q_Min 的 Gamma (若 Q_Min 存在)，即使它是 Outlier
+            # 例：084530 Strike 27400 Put，Q_Min Gamma=1.5, Q_Last Gamma=2.0，PROD 報告 1.5
+            if is_valid_value(Q_Min_Valid_Bid) and is_valid_value(gamma_min):
+                 result_df.at[idx, 'Q_Last_Valid_Gamma'] = gamma_min
+            else:
+                 result_df.at[idx, 'Q_Last_Valid_Gamma'] = gamma_last
+            
             # ===== 步驟 2.3：判定異常值 =====
             
             # 判定 Q_Last_Valid 是否為異常值
@@ -544,6 +562,21 @@ def add_ema_and_outlier_detection(df, term_name):
             result_df.at[idx, 'Q_hat_Mid'] = Q_hat_Mid
             result_df.at[idx, 'Q_hat_Source'] = Q_hat_Source
             
+            # [修正] 決定最終報告的 Gamma (Reported Gamma)
+            # 邏輯：報告「被選中」的報價的 Gamma
+            if Q_hat_Source == "Q_Last_Valid":
+                final_gamma = gamma_last
+            elif Q_hat_Source == "Q_Min_Valid":
+                final_gamma = gamma_min
+            else: # Replacement (即皆為 Outlier)
+                # 當皆為 Outlier 時，PROD 似乎優先報告 Q_Min Gamma (如 Strike 27400 Put 案例)
+                if is_valid_value(Q_Min_Valid_Bid) and is_valid_value(gamma_min):
+                    final_gamma = gamma_min
+                else:
+                    final_gamma = gamma_last
+            
+            result_df.at[idx, 'Q_Last_Valid_Gamma'] = final_gamma
+            
             # 更新前一時點狀態（供下一個時間點使用）
             Q_hat_Bid_prev = Q_hat_Bid
             Q_hat_Ask_prev = Q_hat_Ask
@@ -570,9 +603,9 @@ def main():
     print("=" * 60)
     print()
     
-    # 讀取步驟一產生的 CSV（全天資料）
-    near_csv = "step0_1_valid_quotes_Near_全天.csv"
-    next_csv = "step0_1_valid_quotes_Next_全天.csv"
+    # 讀取步驟一產生的 CSV（測試前30個時間點）
+    near_csv = "step0_1_valid_quotes_Near_測試前30個.csv"
+    next_csv = "step0_1_valid_quotes_Next_測試前30個.csv"
     
     print(f">>> 讀取步驟一結果...")
     near_df = pd.read_csv(near_csv)
@@ -589,8 +622,8 @@ def main():
     next_with_ema = add_ema_and_outlier_detection(next_df, 'Next')
     
     # 儲存結果
-    near_output = "step0_full_output_Near_全天.csv"
-    next_output = "step0_full_output_Next_全天.csv"
+    near_output = "step0_full_output_Near_測試前30個.csv"
+    next_output = "step0_full_output_Next_測試前30個.csv"
     
     near_with_ema.to_csv(near_output, index=False, encoding='utf-8-sig')
     next_with_ema.to_csv(next_output, index=False, encoding='utf-8-sig')

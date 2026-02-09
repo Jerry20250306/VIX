@@ -239,40 +239,35 @@ class SnapshotScheduler:
     def load_schedule(self):
         """
         讀取 NearPROD 或 NextPROD，提取 Snapshot 觸發點。
-        :return: DataFrame (columns: ['time_obj', 'sys_id', 'orig_time_str'])
+        
+        :return: tuple (schedule_df, initial_sys_id)
+            - schedule_df: DataFrame (columns: ['time_obj', 'sys_id', 'orig_time_str'])
+            - initial_sys_id: Line 2 的 SysID (054500 的 Target_SysID)，作為計算 084515 的 prev_sys_id
         """
         if not os.path.exists(self.prod_file_path):
             print(f"錯誤: 找不到 PROD 檔案: {self.prod_file_path}")
-            return pd.DataFrame()
+            return pd.DataFrame(), 0
             
         print(f"讀取排程檔: {os.path.basename(self.prod_file_path)}")
         
         schedule_list = []
+        initial_sys_id = 0  # Line 2 的 SysID，作為第一筆的 prev_sys_id
         
         with open(self.prod_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             
         if len(lines) < 2:
-            return pd.DataFrame()
+            return pd.DataFrame(), 0
             
-        # 1. 處理 Line 2 特例 (Start Row)
+        # 1. 處理 Line 2 特例 (054500 Start Row)
         # 格式: 84500 <tab> 22934
+        # 這個 SysID 是計算第一筆 (084515) 時的 prev_sys_id
         line2_parts = lines[1].strip().split('\t')
         if len(line2_parts) >= 2:
             start_time_str = line2_parts[0].zfill(6) # 補零: 84500 -> 084500
-            start_sys_id = int(line2_parts[1])
-            
-            # 轉換為 datetime object 方便計算 15秒
-            # 假設日期為當日 (需要外部傳入 or 忽略日期只比對時間)
-            # 這裡簡單起見，我們只處理時間 (HHMMSS)
-            t_obj = datetime.strptime(start_time_str, "%H%M%S")
-            
-            schedule_list.append({
-                'time_obj': t_obj,
-                'sys_id': start_sys_id,
-                'orig_time_str': start_time_str
-            })
-            
+            initial_sys_id = int(line2_parts[1])
+            print(f"  初始 SysID (Line 2, {start_time_str}): {initial_sys_id}")
+        
         # 2. 處理 Line 3+ 標準列
         # 抓取 Header 索引
         header_parts = lines[0].strip().split('\t')
@@ -281,7 +276,7 @@ class SnapshotScheduler:
             sys_id_idx = header_parts.index('snapshot_sysID')
         except ValueError:
             print("錯誤: PROD 檔缺少 time 或 snapshot_sysID 欄位")
-            return pd.DataFrame()
+            return pd.DataFrame(), initial_sys_id
             
         # 遍歷剩餘行數
         # 注意: PROD 檔是每個 Strike 一行，所以 Time/SysID 會重複
@@ -310,7 +305,7 @@ class SnapshotScheduler:
                 
         df = pd.DataFrame(schedule_list)
         print(f"排程載入完成，共 {len(df)} 個快照時間點。")
-        return df
+        return df, initial_sys_id
 
 class SnapshotReconstructor:
     """
@@ -335,51 +330,53 @@ class SnapshotReconstructor:
         # self.ticks_df.set_index('temp_datetime', inplace=True) 
         # 不 set_index，保留 RangeIndex 方便 boolean masking 或 searchsorted
         
-    def reconstruct_at(self, target_time_obj, target_sys_id):
+    def reconstruct_at(self, target_time_obj, target_sys_id, prev_sys_id=0):
         """
         重建特定時間點的委託簿快照 (Dual Strategy)。
         
+        【重要】Q_Last 和 Q_Min 的搜尋範圍相同：
+        prev_sys_id < SeqNo <= target_sys_id
+        (即：兩個快照時間點之間的報價)
+        
         策略 1: My_Last (Latest Quote)
-            - 規則: 找出 SeqNo <= Target_SysID 的最後一筆報價 (不看 Spread 大小)。
-            - 假設: 這對應官方的 "Off Quote"。
+            - 在區間內找「最新」的報價 (SeqNo 最大)
             
         策略 2: My_Min (Min Spread)
-            - 規則: 在 [T-15, T] 時間窗內，找出 Spread 最小的報價。
+            - 在區間內找「Spread 最小」的報價
+            
+        Args:
+            target_time_obj: 目標時間 (datetime)
+            target_sys_id: 當前快照的 SysID (SeqNo 上限)
+            prev_sys_id: 前一個快照的 SysID (SeqNo 下限，預設為 0)
         """
-        # 1. 基礎篩選: SeqNo <= Target
-        # 先切出一塊歷史資料
-        candidates = self.ticks_df[self.ticks_df['svel_i081_seqno'] <= target_sys_id].copy()
+        # 篩選區間: prev_sys_id <= SeqNo <= target_sys_id (包含兩端)
+        candidates = self.ticks_df[
+            (self.ticks_df['svel_i081_seqno'] >= prev_sys_id) &
+            (self.ticks_df['svel_i081_seqno'] <= target_sys_id)
+        ].copy()
         
         if candidates.empty:
-            return pd.DataFrame()
+            # 區間內無報價 → Q_Last 和 Q_Min 都是 null
+            return pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
+                                         'My_Last_SysID', 'My_Last_Time', 'My_Last_ProdID',
+                                         'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread'])
 
         # 計算 Spread (通用)
         candidates['Spread'] = candidates['svel_i081_best_sell_price1'] - candidates['svel_i081_best_buy_price1']
-        # 處理單邊報價
+        # 處理單邊報價 (Bid=0 或 Ask=0)
         no_quote_mask = (candidates['svel_i081_best_buy_price1'] == 0) | (candidates['svel_i081_best_sell_price1'] == 0)
         candidates.loc[no_quote_mask, 'Spread'] = 999999
         
-        # === 策略 1: My_Last (Latest) ===
-        # 排序: SeqNo Desc (最新的在上面)
+        # === 策略 1: My_Last (區間內最新報價) ===
         last_candidates = candidates.sort_values(by=['svel_i081_seqno'], ascending=False)
-        # 每個商品只留第一筆 (最新的)
         snapshot_last = last_candidates.drop_duplicates(subset=['Strike', 'CP'], keep='first').copy()
         
-        # === 策略 2: My_Min (Min Spread within 15s) ===
-        # 加一層時間過濾
-        start_time_obj = target_time_obj - timedelta(seconds=15)
-        min_candidates = candidates[candidates['temp_datetime'] >= start_time_obj].copy()
+        # === 策略 2: My_Min (區間內 Spread 最小) ===
+        # 排序: Spread Asc, SeqNo Desc (Spread 相同取最新的)
+        min_candidates = candidates.sort_values(by=['Spread', 'svel_i081_seqno'], ascending=[True, False])
+        snapshot_min = min_candidates.drop_duplicates(subset=['Strike', 'CP'], keep='first').copy()
         
-        if min_candidates.empty:
-            snapshot_min = pd.DataFrame(columns=['Strike', 'CP']) # Empty
-        else:
-            # 排序: Spread Asc, SeqNo Desc (Spread 相同取最新的)
-            min_candidates.sort_values(by=['Spread', 'svel_i081_seqno'], ascending=[True, False], inplace=True)
-            snapshot_min = min_candidates.drop_duplicates(subset=['Strike', 'CP'], keep='first').copy()
-            
         # === 合併結果 ===
-        # 以 Last 為主體 (因為 Last 幾乎一定有值)，Min 可能因時間窗沒值
-        # Rename columns to distinguish
         snapshot_last = snapshot_last[['Strike', 'CP', 'svel_i081_best_buy_price1', 'svel_i081_best_sell_price1', 'svel_i081_seqno', 'svel_i081_time', 'svel_i081_prod_id']].rename(columns={
             'svel_i081_best_buy_price1': 'My_Last_Bid',
             'svel_i081_best_sell_price1': 'My_Last_Ask',
@@ -388,21 +385,15 @@ class SnapshotReconstructor:
             'svel_i081_prod_id': 'My_Last_ProdID'
         })
         
-        if not snapshot_min.empty:
-            snapshot_min = snapshot_min[['Strike', 'CP', 'svel_i081_best_buy_price1', 'svel_i081_best_sell_price1', 'Spread']].rename(columns={
-                'svel_i081_best_buy_price1': 'My_Min_Bid',
-                'svel_i081_best_sell_price1': 'My_Min_Ask',
-                'Spread': 'My_Min_Spread'
-            })
-            
-            # Merge Min info into Last
-            result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='left')
-        else:
-            result = snapshot_last
-            result['My_Min_Bid'] = np.nan
-            result['My_Min_Ask'] = np.nan
-            result['My_Min_Spread'] = np.nan
-            
+        snapshot_min = snapshot_min[['Strike', 'CP', 'svel_i081_best_buy_price1', 'svel_i081_best_sell_price1', 'Spread']].rename(columns={
+            'svel_i081_best_buy_price1': 'My_Min_Bid',
+            'svel_i081_best_sell_price1': 'My_Min_Ask',
+            'Spread': 'My_Min_Spread'
+        })
+        
+        # Merge: 兩者搜尋範圍相同，應該都有值或都沒有
+        result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
+        
         return result
 
 from datetime import datetime, timedelta
@@ -582,9 +573,9 @@ def main():
         print(f"\n>>> 驗證 {term_name} Term ({prod_filename})")
         prod_path = os.path.join(prod_dir, prod_filename)
         
-        # 載入排程找 SysID
+        # 載入排程找 SysID (回傳 schedule_df 和 initial_sys_id)
         scheduler = SnapshotScheduler(prod_path)
-        schedule = scheduler.load_schedule()
+        schedule, _ = scheduler.load_schedule()  # 忽略 initial_sys_id，此處測試用
         target_row = schedule[schedule['orig_time_str'] == TARGET_TIME]
         
         if target_row.empty:
@@ -595,10 +586,10 @@ def main():
         sys_id = target_row.iloc[0]['sys_id']
         print(f"  Snapshot Point: Time={TARGET_TIME}, SysID={sys_id}")
         
-        # 重建
+        # 重建 (測試用：使用 prev_sys_id=0，即搜尋從頭到 sys_id 的所有報價)
         print("  Reconstructing Order Book...")
         reconstructor = SnapshotReconstructor(ticks)
-        snapshot = reconstructor.reconstruct_at(t_obj, sys_id)
+        snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id=0)
         
         # 準備官方資料
         off_calls_df, off_puts_df = get_official_data(prod_path, TARGET_TIME)

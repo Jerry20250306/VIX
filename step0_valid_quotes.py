@@ -711,8 +711,8 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         4. target_time="HHMMSS": 只處理單一時間點（預設 "120015"）
     """
     # 設定參數
-    raw_dir = r"c:\AGY\VIX\VIX\資料來源\J002-11300041_20251231\temp"
-    prod_dir = r"c:\AGY\VIX\VIX\資料來源\20251231"
+    raw_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\J002-11300041_20251231\temp"
+    prod_dir = r"c:\Users\jerry1016\.gemini\antigravity\VIX\資料來源\20251231"
     target_date = "20251231"
     
     # 決定處理模式
@@ -757,9 +757,9 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         print(f"\n>>> 處理 {term_name} Term")
         prod_path = os.path.join(prod_dir, prod_filename)
         
-        # 載入排程
+        # 載入排程 (回傳 schedule_df 和初始 SysID)
         scheduler = SnapshotScheduler(prod_path)
-        schedule = scheduler.load_schedule()
+        schedule, initial_sys_id = scheduler.load_schedule()
         
         if process_all_times or end_time or max_time_points:
             # 處理多個時間點（全天、範圍或測試）
@@ -784,6 +784,8 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             
             term_results = []
             all_reports = []  # 儲存所有時間點的報表 DataFrame
+            # 使用 PROD Line 2 的 SysID (054500) 作為第一筆的 prev_sys_id
+            prev_sys_id = initial_sys_id
             
             for idx, time_str in enumerate(time_points, 1):
                 target_row = schedule[schedule['orig_time_str'] == time_str].iloc[0]
@@ -792,9 +794,12 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
                 
                 print(f"  處理 {idx}/{len(time_points)}: {time_str} (SysID={sys_id})")
                 
-                # 重建快照
+                # 重建快照 (搜尋區間: prev_sys_id < SeqNo <= sys_id)
                 reconstructor = SnapshotReconstructor(ticks)
-                snapshot = reconstructor.reconstruct_at(t_obj, sys_id)
+                snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id)
+                
+                # 更新 prev_sys_id 供下一次迭代
+                prev_sys_id = sys_id
                 
                 # 產生報表資料（但不輸出個別 CSV）
                 # 建立報表 DataFrame
@@ -906,12 +911,22 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             
             t_obj = target_row.iloc[0]['time_obj']
             sys_id = target_row.iloc[0]['sys_id']
-            print(f"  Snapshot Point: Time={target_time}, SysID={sys_id}")
             
-            # 重建快照 (取得 Q_last 和 Q_latest)
+            # 找前一個時間點的 SysID
+            schedule_list = schedule['orig_time_str'].tolist()
+            target_idx = schedule_list.index(target_time) if target_time in schedule_list else -1
+            if target_idx > 0:
+                prev_time_str = schedule_list[target_idx - 1]
+                prev_sys_id = schedule[schedule['orig_time_str'] == prev_time_str].iloc[0]['sys_id']
+            else:
+                prev_sys_id = 0  # 第一個時間點
+            
+            print(f"  Snapshot Point: Time={target_time}, SysID={sys_id}, prev_SysID={prev_sys_id}")
+            
+            # 重建快照 (搜尋區間: prev_sys_id < SeqNo <= sys_id)
             print("  重建委託簿快照...")
             reconstructor = SnapshotReconstructor(ticks)
-            snapshot = reconstructor.reconstruct_at(t_obj, sys_id)
+            snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id)
             
             print(f"  重建完成，共 {len(snapshot)} 筆序列")
             
@@ -927,8 +942,8 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         print(f"整合報表已儲存至: {integrated_output}")
 
 if __name__ == "__main__":
-    # 全天處理
-    main(process_all_times=True)
+    # 驗證前30個時點
+    main(max_time_points=30)
     
     # 其他測試模式：
     # main(max_time_points=1)            # 測試第1個時間點
