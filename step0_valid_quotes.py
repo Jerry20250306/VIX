@@ -890,11 +890,11 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
                 
                 # 根據處理模式決定檔名
                 if max_time_points:
-                    csv_output = f"step0_1_valid_quotes_{term_name}_測試前{max_time_points}個.csv"
+                    csv_output = f"output/step0_1_valid_quotes_{term_name}_測試前{max_time_points}個.csv"
                 elif end_time:
-                    csv_output = f"step0_1_valid_quotes_{term_name}_範圍_{time_points[0]}至{end_time}.csv"
+                    csv_output = f"output/step0_1_valid_quotes_{term_name}_範圍_{time_points[0]}至{end_time}.csv"
                 else:
-                    csv_output = f"step0_1_valid_quotes_{term_name}_全天.csv"
+                    csv_output = f"output/step0_1_valid_quotes_{term_name}_全天.csv"
                 
                 combined_df.to_csv(csv_output, index=False, encoding='utf-8-sig')
                 print(f"\n  {term_name} 整合 CSV 已儲存: {csv_output}")

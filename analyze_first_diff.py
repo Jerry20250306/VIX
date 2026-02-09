@@ -21,7 +21,7 @@ def main():
     near_prod = pd.read_csv(r'資料來源\20251231\NearPROD_20251231.tsv', sep='\t', dtype=str)
     
     # 我們的計算結果
-    near_calc = pd.read_csv('step0_full_output_Near_測試前30個.csv')
+    near_calc = pd.read_csv('output/step0_full_output_Near_測試前30個.csv')
     
     print(f"    PROD: {len(near_prod)} 筆")
     print(f"    我們: {len(near_calc)} 筆")

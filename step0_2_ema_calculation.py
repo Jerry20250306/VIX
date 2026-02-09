@@ -143,17 +143,20 @@ def calculate_ema_for_series(time_series_df):
     # 複製資料並按時間排序（確保迭代順序正確）
     df = time_series_df.sort_values('Time').copy()
     
-    # 初始化 EMA 相關欄位
-    df['EMA'] = None           # EMA 數值
-    df['EMA_Process'] = None   # EMA 計算過程說明（供除錯用）
+    # 【優化】預先取出 spread 值為 Python list，避免 pandas 迭代開銷
+    spreads = df['Q_Min_Valid_Spread'].tolist()
+    n = len(spreads)
+    
+    # 【優化】使用 list 收集結果，最後一次賦值到 DataFrame
+    ema_list = [None] * n
+    process_list = [None] * n
     
     # 追蹤前一時點的 EMA（用於遞迴計算）
     prev_ema = None
     
     # 逐筆迭代計算 EMA
-    for idx, row in df.iterrows():
-        # 取得當前時間點的 Q_Min_Valid 價差
-        spread = row['Q_Min_Valid_Spread']
+    for i in range(n):
+        spread = spreads[i]
         
         # 檢查價差是否為 null（無有效報價）
         is_null = (spread == "null" or pd.isna(spread))
@@ -195,12 +198,16 @@ def calculate_ema_for_series(time_series_df):
                     ema = ALPHA * prev_ema + (1 - ALPHA) * float(spread)
                     process = f"正常公式：EMA_t = 0.95×{prev_ema:.6f} + 0.05×{spread} = {ema:.6f}"
         
-        # 寫入計算結果
-        df.at[idx, 'EMA'] = ema
-        df.at[idx, 'EMA_Process'] = process
+        # 【優化】寫入 list 而非 df.at（減少 pandas 開銷）
+        ema_list[i] = ema
+        process_list[i] = process
         
         # 更新 prev_ema 供下一次迭代使用
         prev_ema = ema
+    
+    # 【優化】一次性賦值到 DataFrame
+    df['EMA'] = ema_list
+    df['EMA_Process'] = process_list
     
     return df
 
@@ -622,8 +629,8 @@ def main():
     next_with_ema = add_ema_and_outlier_detection(next_df, 'Next')
     
     # 儲存結果
-    near_output = "step0_full_output_Near_測試前30個.csv"
-    next_output = "step0_full_output_Next_測試前30個.csv"
+    near_output = "output/step0_full_output_Near_測試前30個.csv"
+    next_output = "output/step0_full_output_Next_測試前30個.csv"
     
     near_with_ema.to_csv(near_output, index=False, encoding='utf-8-sig')
     next_with_ema.to_csv(next_output, index=False, encoding='utf-8-sig')
