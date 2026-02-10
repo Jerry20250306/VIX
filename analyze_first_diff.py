@@ -1,7 +1,7 @@
 """
-VIX 差異分析腳本（優化版）
-依照時間順序找出第一筆差異並詳細分析
-使用 merge + 向量化比較，大幅提升效能
+VIX Step 0 差異分析腳本（PROD 格式版）
+直接比對我們的 PROD 格式輸出 vs 官方 PROD 資料
+兩邊欄位名稱一致（c.bid, c.ask, c.ema, c.gamma, ...），可直接比較
 """
 import pandas as pd
 import numpy as np
@@ -9,219 +9,177 @@ import numpy as np
 pd.set_option('display.width', 400)
 pd.set_option('display.max_columns', None)
 
+# ======================================================================
+# 要比對的欄位清單（對應 docs/output_format_spec.md）
+# ======================================================================
+
+# 數值型欄位：使用容差比對
+NUMERIC_COMPARE_COLS = [
+    # Call
+    'c.ema', 'c.gamma',
+    'c.last_bid', 'c.last_ask',
+    'c.min_bid', 'c.min_ask',
+    'c.bid', 'c.ask',
+    # Put
+    'p.ema', 'p.gamma',
+    'p.last_bid', 'p.last_ask',
+    'p.min_bid', 'p.min_ask',
+    'p.bid', 'p.ask',
+]
+
+# 字串型欄位：使用完全比對
+STRING_COMPARE_COLS = [
+    'c.last_outlier', 'c.min_outlier',
+    'p.last_outlier', 'p.min_outlier',
+]
+
+
 def main():
     print("=" * 80)
-    print("VIX Step 0 差異分析 - 找出第一筆差異")
+    print("VIX Step 0 差異分析 - PROD 格式直接比對")
     print("=" * 80)
     
-    # 載入資料
+    # ======================================================================
+    # 1. 載入資料
+    # ======================================================================
     print("\n>>> 載入資料...")
     
-    # PROD 資料
-    near_prod = pd.read_csv(r'資料來源\20251231\NearPROD_20251231.tsv', sep='\t', dtype=str)
+    # 官方 PROD 資料
+    prod_df = pd.read_csv(
+        r'資料來源\20251231\NearPROD_20251231.tsv', 
+        sep='\t', dtype=str
+    )
     
-    # 我們的計算結果
-    near_calc = pd.read_csv('output/step0_full_output_Near_測試前30個.csv')
+    # 我們的計算結果（已是 PROD 格式）
+    our_df = pd.read_csv('output/驗證20251231_NearPROD.csv')
     
-    print(f"    PROD: {len(near_prod)} 筆")
-    print(f"    我們: {len(near_calc)} 筆")
+    print(f"    PROD: {len(prod_df)} 筆")
+    print(f"    我們: {len(our_df)} 筆")
     
-    # 準備 PROD 資料
-    prod_valid = near_prod[near_prod['strike'].notna() & (near_prod['strike'] != '')].copy()
-    prod_valid['time_int'] = prod_valid['time'].astype(int)
-    prod_valid['strike_int'] = prod_valid['strike'].astype(int)
-    
-    # =========================================================================
-    # 優化：將 PROD 展開為 Call/Put 獨立的行，然後用 merge 一次比較
-    # =========================================================================
-    
-    # 展開 Call
-    prod_call = prod_valid[['time_int', 'strike_int', 
-                            'c.bid', 'c.ask', 'c.last_bid', 'c.last_ask', 'c.last_outlier',
-                            'c.min_bid', 'c.min_ask', 'c.min_outlier', 'c.ema', 'c.gamma']].copy()
-    prod_call['CP'] = 'Call'
-    prod_call = prod_call.rename(columns={
-        'strike_int': 'Strike',
-        'time_int': 'Time',
-        'c.bid': 'PROD_Q_hat_Bid',
-        'c.ask': 'PROD_Q_hat_Ask',
-        'c.last_bid': 'PROD_Last_Bid',
-        'c.last_ask': 'PROD_Last_Ask',
-        'c.last_outlier': 'PROD_Last_Outlier',
-        'c.min_bid': 'PROD_Min_Bid',
-        'c.min_ask': 'PROD_Min_Ask',
-        'c.min_outlier': 'PROD_Min_Outlier',
-        'c.ema': 'PROD_EMA',
-        'c.gamma': 'PROD_Gamma'
-    })
-    
-    # 展開 Put
-    prod_put = prod_valid[['time_int', 'strike_int',
-                           'p.bid', 'p.ask', 'p.last_bid', 'p.last_ask', 'p.last_outlier',
-                           'p.min_bid', 'p.min_ask', 'p.min_outlier', 'p.ema', 'p.gamma']].copy()
-    prod_put['CP'] = 'Put'
-    prod_put = prod_put.rename(columns={
-        'strike_int': 'Strike',
-        'time_int': 'Time',
-        'p.bid': 'PROD_Q_hat_Bid',
-        'p.ask': 'PROD_Q_hat_Ask',
-        'p.last_bid': 'PROD_Last_Bid',
-        'p.last_ask': 'PROD_Last_Ask',
-        'p.last_outlier': 'PROD_Last_Outlier',
-        'p.min_bid': 'PROD_Min_Bid',
-        'p.min_ask': 'PROD_Min_Ask',
-        'p.min_outlier': 'PROD_Min_Outlier',
-        'p.ema': 'PROD_EMA',
-        'p.gamma': 'PROD_Gamma'
-    })
-    
-    # 合併 Call 和 Put
-    prod_expanded = pd.concat([prod_call, prod_put], ignore_index=True)
+    # ======================================================================
+    # 2. 準備 PROD 資料
+    # ======================================================================
+    # 篩選有效列（有 strike 的行）
+    prod_valid = prod_df[prod_df['strike'].notna() & (prod_df['strike'] != '')].copy()
+    prod_valid['time'] = prod_valid['time'].astype(int)
+    prod_valid['strike'] = prod_valid['strike'].astype(int)
     
     # 轉換 PROD 數值欄位
-    for col in ['PROD_Q_hat_Bid', 'PROD_Q_hat_Ask', 'PROD_EMA', 'PROD_Gamma']:
-        prod_expanded[col] = pd.to_numeric(prod_expanded[col], errors='coerce')
+    for col in NUMERIC_COMPARE_COLS:
+        if col in prod_valid.columns:
+            prod_valid[col] = pd.to_numeric(prod_valid[col], errors='coerce')
     
-    # Merge：一次性合併 PROD 和我們的計算結果
+    # 確保我們的資料型別正確
+    our_df['time'] = our_df['time'].astype(int)
+    our_df['strike'] = our_df['strike'].astype(int)
+    
+    # ======================================================================
+    # 3. Merge：以 (time, strike) 為 key 合併
+    # ======================================================================
+    # 先加前綴避免衝突
+    prod_renamed = prod_valid.rename(
+        columns={c: f'PROD_{c}' for c in NUMERIC_COMPARE_COLS + STRING_COMPARE_COLS 
+                 if c in prod_valid.columns}
+    )
+    our_renamed = our_df.rename(
+        columns={c: f'OUR_{c}' for c in NUMERIC_COMPARE_COLS + STRING_COMPARE_COLS 
+                 if c in our_df.columns}
+    )
+    
     merged = pd.merge(
-        near_calc,
-        prod_expanded,
-        on=['Time', 'Strike', 'CP'],
+        our_renamed, prod_renamed,
+        on=['time', 'strike'],
         how='inner'
     )
     
     print(f"    合併後: {len(merged)} 筆可比較")
     
-    # =========================================================================
-    # 向量化比較：一次找出所有差異
-    # =========================================================================
+    # ======================================================================
+    # 4. 向量化比較
+    # ======================================================================
+    diff_flags = {}
     
-    # Q_hat_Bid 差異
-    merged['diff_Q_hat_Bid'] = (merged['Q_hat_Bid'].fillna(-1).astype(int) != 
-                                merged['PROD_Q_hat_Bid'].fillna(-1).astype(int))
+    # 數值型比對：容差 0.01（價格整數比對給容差以防浮點誤差）
+    for col in NUMERIC_COMPARE_COLS:
+        our_col = f'OUR_{col}'
+        prod_col = f'PROD_{col}'
+        if our_col in merged.columns and prod_col in merged.columns:
+            # EMA 使用更嚴格的容差
+            tol = 1e-4 if 'ema' in col else 0.01
+            diff_flags[col] = (
+                merged[our_col].fillna(-999) - merged[prod_col].fillna(-999)
+            ).abs() > tol
     
-    # Q_hat_Ask 差異
-    merged['diff_Q_hat_Ask'] = (merged['Q_hat_Ask'].fillna(-1).astype(int) != 
-                                merged['PROD_Q_hat_Ask'].fillna(-1).astype(int))
+    # 字串型比對：直接比較
+    for col in STRING_COMPARE_COLS:
+        our_col = f'OUR_{col}'
+        prod_col = f'PROD_{col}'
+        if our_col in merged.columns and prod_col in merged.columns:
+            diff_flags[col] = (
+                merged[our_col].fillna('').astype(str).str.strip() != 
+                merged[prod_col].fillna('').astype(str).str.strip()
+            )
     
-    # EMA 差異 (容許 1e-4 誤差)
-    merged['diff_EMA'] = (merged['EMA'].fillna(0) - merged['PROD_EMA'].fillna(0)).abs() >= 1e-4
+    # 合併所有差異
+    merged['has_diff'] = False
+    for col, flag in diff_flags.items():
+        merged[f'diff_{col}'] = flag
+        merged['has_diff'] = merged['has_diff'] | flag
     
-    # Gamma 差異
-    merged['diff_Gamma'] = (merged['Q_Last_Valid_Gamma'].fillna(0) - 
-                            merged['PROD_Gamma'].fillna(0)).abs() >= 0.01
-    
-    # Outlier 差異：PROD 'V' = True outlier, 數字1-4 = False (符合某條件)
-    def check_outlier_match(row):
-        prod_val = row['PROD_Last_Outlier']
-        our_val = row['Q_Last_Valid_Is_Outlier']
-        if prod_val == 'V' and our_val != True:
-            return True  # 差異
-        elif prod_val not in ['V', '-', '', None] and not pd.isna(prod_val) and our_val != False:
-            return True  # 差異
-        return False
-    
-    merged['diff_Outlier'] = merged.apply(check_outlier_match, axis=1)
-    
-    # 任一差異
-    merged['has_diff'] = (merged['diff_Q_hat_Bid'] | merged['diff_Q_hat_Ask'] | 
-                          merged['diff_EMA'] | merged['diff_Gamma'] | merged['diff_Outlier'])
-    
-    # =========================================================================
-    # 依時間順序找第一筆差異
-    # =========================================================================
-    
+    # ======================================================================
+    # 5. 依時間順序分析差異
+    # ======================================================================
     print("\n" + "=" * 80)
     print("依時間順序分析差異")
     print("=" * 80)
     
-    our_times = sorted(merged['Time'].unique())
+    our_times = sorted(merged['time'].unique())
     
     for time_int in our_times:
-        print(f"\n>>> 分析時間點: {time_int}")
+        time_data = merged[merged['time'] == time_int]
+        strikes = len(time_data['strike'].unique())
         
-        time_data = merged[merged['Time'] == time_int]
-        prod_strikes = len(time_data['Strike'].unique())
+        print(f"\n>>> 時間點: {time_int} ({strikes} 個 Strike)")
         
-        print(f"    PROD 有 {prod_strikes} 個 Strike")
-        print(f"    我們有 {len(time_data)} 筆（含 Call/Put）")
-        
-        # 找該時間點的差異
         diff_rows = time_data[time_data['has_diff']]
         
         if len(diff_rows) == 0:
-            print(f"    [OK] 此時間點無差異")
+            print(f"    [OK] 無差異")
             continue
         
-        # 取第一筆差異
-        first_diff = diff_rows.iloc[0]
-        strike = first_diff['Strike']
-        cp = first_diff['CP']
-        prefix = 'c' if cp == 'Call' else 'p'
+        # 列出所有差異欄位統計
+        diff_summary = {}
+        for col in diff_flags:
+            cnt = time_data[f'diff_{col}'].sum()
+            if cnt > 0:
+                diff_summary[col] = int(cnt)
         
-        print(f"\n    [差異] Strike={strike}, CP={cp}")
-        print(f"    " + "-" * 60)
+        print(f"    [差異] 共 {len(diff_rows)} 筆不一致")
+        for col, cnt in diff_summary.items():
+            print(f"        {col}: {cnt} 筆")
         
-        # 列出具體差異
-        if first_diff['diff_Q_hat_Bid']:
-            print(f"    Q_hat_Bid:")
-            print(f"        PROD: {first_diff['PROD_Q_hat_Bid']}")
-            print(f"        我們: {first_diff['Q_hat_Bid']}")
+        # 顯示第一筆差異的詳細資訊
+        first = diff_rows.iloc[0]
+        strike = first['strike']
+        print(f"\n    首筆差異 Strike={strike}:")
+        print(f"    {'欄位':<20} {'PROD':>15} {'我們':>15} {'差異':>6}")
+        print(f"    {'-'*56}")
         
-        if first_diff['diff_Q_hat_Ask']:
-            print(f"    Q_hat_Ask:")
-            print(f"        PROD: {first_diff['PROD_Q_hat_Ask']}")
-            print(f"        我們: {first_diff['Q_hat_Ask']}")
-        
-        if first_diff['diff_EMA']:
-            print(f"    EMA:")
-            print(f"        PROD: {first_diff['PROD_EMA']}")
-            print(f"        我們: {first_diff['EMA']}")
-        
-        if first_diff['diff_Gamma']:
-            print(f"    Gamma:")
-            print(f"        PROD: {first_diff['PROD_Gamma']}")
-            print(f"        我們: {first_diff['Q_Last_Valid_Gamma']}")
-        
-        if first_diff['diff_Outlier']:
-            print(f"    Outlier:")
-            print(f"        PROD: {first_diff['PROD_Last_Outlier']}")
-            print(f"        我們: {first_diff['Q_Last_Valid_Is_Outlier']}")
-        
-        # 列印完整比較資訊
-        print(f"\n    【完整 PROD 資料】")
-        print(f"        {prefix}.bid = {first_diff['PROD_Q_hat_Bid']}")
-        print(f"        {prefix}.ask = {first_diff['PROD_Q_hat_Ask']}")
-        print(f"        {prefix}.last_bid = {first_diff['PROD_Last_Bid']}")
-        print(f"        {prefix}.last_ask = {first_diff['PROD_Last_Ask']}")
-        print(f"        {prefix}.last_outlier = {first_diff['PROD_Last_Outlier']}")
-        print(f"        {prefix}.min_bid = {first_diff['PROD_Min_Bid']}")
-        print(f"        {prefix}.min_ask = {first_diff['PROD_Min_Ask']}")
-        print(f"        {prefix}.min_outlier = {first_diff['PROD_Min_Outlier']}")
-        print(f"        {prefix}.ema = {first_diff['PROD_EMA']}")
-        print(f"        {prefix}.gamma = {first_diff['PROD_Gamma']}")
-        
-        print(f"\n    【我們的計算結果】")
-        print(f"        Q_hat_Bid = {first_diff['Q_hat_Bid']}")
-        print(f"        Q_hat_Ask = {first_diff['Q_hat_Ask']}")
-        print(f"        Q_hat_Source = {first_diff['Q_hat_Source']}")
-        print(f"        Q_Last_Valid_Bid = {first_diff['Q_Last_Valid_Bid']}")
-        print(f"        Q_Last_Valid_Ask = {first_diff['Q_Last_Valid_Ask']}")
-        print(f"        Q_Last_Valid_Is_Outlier = {first_diff['Q_Last_Valid_Is_Outlier']}")
-        print(f"        Q_Min_Valid_Bid = {first_diff['Q_Min_Valid_Bid']}")
-        print(f"        Q_Min_Valid_Ask = {first_diff['Q_Min_Valid_Ask']}")
-        print(f"        Q_Min_Valid_Is_Outlier = {first_diff['Q_Min_Valid_Is_Outlier']}")
-        print(f"        EMA = {first_diff['EMA']}")
-        print(f"        Q_Last_Valid_Gamma = {first_diff['Q_Last_Valid_Gamma']}")
+        for col in NUMERIC_COMPARE_COLS + STRING_COMPARE_COLS:
+            if f'diff_{col}' in merged.columns and first.get(f'diff_{col}', False):
+                prod_val = first.get(f'PROD_{col}', 'N/A')
+                our_val = first.get(f'OUR_{col}', 'N/A')
+                print(f"    {col:<20} {str(prod_val):>15} {str(our_val):>15}   <<<")
         
         print("\n" + "=" * 80)
-        print("分析結束：已找到第一筆差異")
+        print("分析結束：已找到差異")
         print("=" * 80)
-        return  # 找到第一筆差異就停止
+        return  # 找到差異就停止
     
     print("\n" + "=" * 80)
     print("[OK] 全部時間點驗證通過，無任何差異！")
     print("=" * 80)
+
 
 if __name__ == "__main__":
     main()

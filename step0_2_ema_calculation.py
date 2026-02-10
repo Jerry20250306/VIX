@@ -610,9 +610,12 @@ def main():
     print("=" * 60)
     print()
     
-    # 讀取步驟一產生的 CSV（測試前30個時間點）
-    near_csv = "step0_1_valid_quotes_Near_測試前30個.csv"
-    next_csv = "step0_1_valid_quotes_Next_測試前30個.csv"
+    # 資料日期（與 step0_valid_quotes.py 一致）
+    target_date = "20251231"
+    
+    # 讀取步驟一產生的 CSV
+    near_csv = f"output/驗證{target_date}_Near_step1.csv"
+    next_csv = f"output/驗證{target_date}_Next_step1.csv"
     
     print(f">>> 讀取步驟一結果...")
     near_df = pd.read_csv(near_csv)
@@ -628,16 +631,13 @@ def main():
     print(f"\n>>> 處理 Next Term...")
     next_with_ema = add_ema_and_outlier_detection(next_df, 'Next')
     
-    # 儲存結果
-    near_output = "output/step0_full_output_Near_測試前30個.csv"
-    next_output = "output/step0_full_output_Next_測試前30個.csv"
+    # 只輸出 PROD 格式結果（Call/Put 合併、c./p. 前綴）
+    near_output = f"output/驗證{target_date}_NearPROD.csv"
+    next_output = f"output/驗證{target_date}_NextPROD.csv"
     
-    near_with_ema.to_csv(near_output, index=False, encoding='utf-8-sig')
-    next_with_ema.to_csv(next_output, index=False, encoding='utf-8-sig')
-    
-    print(f"\n>>> 結果已儲存:")
-    print(f"    {near_output}")
-    print(f"    {next_output}")
+    print(f"\n>>> 轉換並儲存 PROD 格式結果...")
+    save_prod_format(near_with_ema, near_output, snapshot_sysid_col='Snapshot_SysID')
+    save_prod_format(next_with_ema, next_output, snapshot_sysid_col='Snapshot_SysID')
     
     # 列印統計資訊
     print(f"\n" + "=" * 60)

@@ -893,12 +893,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
                 combined_df = pd.concat(all_reports, ignore_index=True)
                 
                 # 根據處理模式決定檔名
-                if max_time_points:
-                    csv_output = f"output/step0_1_valid_quotes_{term_name}_測試前{max_time_points}個.csv"
-                elif end_time:
-                    csv_output = f"output/step0_1_valid_quotes_{term_name}_範圍_{time_points[0]}至{end_time}.csv"
-                else:
-                    csv_output = f"output/step0_1_valid_quotes_{term_name}_全天.csv"
+                csv_output = f"output/驗證{target_date}_{term_name}_step1.csv"
                 
                 combined_df.to_csv(csv_output, index=False, encoding='utf-8-sig')
                 print(f"\n  {term_name} 整合 CSV 已儲存: {csv_output}")
@@ -947,7 +942,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
 
 if __name__ == "__main__":
     # 驗證前30個時點
-    main(max_time_points=30)
+    main(process_all_times=True)
     
     # 其他測試模式：
     # main(max_time_points=1)            # 測試第1個時間點
