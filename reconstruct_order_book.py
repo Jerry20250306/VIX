@@ -316,19 +316,6 @@ class SnapshotReconstructor:
         :param ticks_df: 已過濾好 (Near 或 Next) 且已排序的 Raw Ticks DataFrame
         """
         self.ticks_df = ticks_df
-        # 預先處理時間欄位加速篩選
-        # Raw Time Format: HHMMSSuuuuuu (12 chars) -> datetime
-        print("預處理 Tick 時間格式...")
-        # 為了效能，我們只轉換一次
-        # 20251231 + 084500083000
-        # 這裡為了跟 Schedule 比對 (只含時間)，我們用一個 Dummy Date
-        self.ticks_df['temp_datetime'] = pd.to_datetime(
-            self.ticks_df['svel_i081_time'], 
-            format='%H%M%S%f'
-        )
-        # 建立索引以加速區間搜尋 (雖然已經 sort by seqno，但時間搜尋還是需要)
-        # self.ticks_df.set_index('temp_datetime', inplace=True) 
-        # 不 set_index，保留 RangeIndex 方便 boolean masking 或 searchsorted
         
     def reconstruct_at(self, target_time_obj, target_sys_id, prev_sys_id=0):
         """
@@ -500,6 +487,207 @@ class SnapshotReconstructor:
             result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
         
         return result
+
+    def reconstruct_all(self, schedule_times, initial_sys_id):
+        """
+        【增量式】一次重建所有時間點的委託簿快照。
+        
+        比逐個呼叫 reconstruct_at 快 10-50x，因為：
+        1. 只做一次排序和預處理（NumPy 陣列）
+        2. 每個時間點只處理新增的 ticks（np.searchsorted 二分搜尋）
+        3. 用字典維護 Q_Last 狀態，增量更新
+        4. 全部時間點的結果累積為 flat list，最後一次建 DataFrame
+        
+        Args:
+            schedule_times: list of (time_obj, sys_id, time_str) tuples，依時間排序
+            initial_sys_id: 初始 SysID（排程的第一個 SysID，用作第一個時間點的 prev）
+            
+        Returns:
+            單一 DataFrame，包含所有時間點的快照（含 Time, Snapshot_SysID 欄位）
+        """
+        from collections import defaultdict
+        
+        # =================================================================
+        # 預處理：排序 + 轉為 NumPy 陣列（只做一次）
+        # =================================================================
+        print("增量重建：預處理資料中...")
+        
+        # 確保按 SeqNo 排序
+        ticks_sorted = self.ticks_df.sort_values('svel_i081_seqno').reset_index(drop=True)
+        
+        # 轉為 NumPy 陣列（避免每次存取時的 pandas overhead）
+        seqnos = ticks_sorted['svel_i081_seqno'].values
+        bids = ticks_sorted['svel_i081_best_buy_price1'].values.astype(float)
+        asks = ticks_sorted['svel_i081_best_sell_price1'].values.astype(float)
+        strikes_arr = ticks_sorted['Strike'].values
+        cps_arr = ticks_sorted['CP'].values
+        times_arr = ticks_sorted['svel_i081_time'].values
+        prod_ids_arr = ticks_sorted['svel_i081_prod_id'].values
+        
+        # 預計算 Spread
+        spreads = asks - bids
+        no_quote = (bids == 0) | (asks == 0)
+        spreads[no_quote] = 999999
+        
+        # 預計算有效性（bid >= 0, ask > 0, ask > bid）
+        valid_mask = (bids >= 0) & (asks > 0) & (asks > bids)
+        
+        n_ticks = len(seqnos)
+        n_times = len(schedule_times)
+        print(f"  總 ticks 數: {n_ticks}, 時間點數: {n_times}")
+        
+        # =================================================================
+        # 有效報價判定（inline，避免函式呼叫開銷）
+        # =================================================================
+        # valid_mask[i] = True 代表 tick i 是有效報價
+        
+        # =================================================================
+        # 增量處理：累積所有結果到 flat list
+        # =================================================================
+        q_last = {}         # (Strike, CP) -> 最新報價狀態（Raw）
+        q_last_valid = {}   # (Strike, CP) -> 最新有效報價狀態
+        all_rows = []       # 所有時間點的結果，flat list of dicts
+        
+        # Step A: 處理 initial_sys_id 之前的所有 ticks
+        init_end_idx = int(np.searchsorted(seqnos, initial_sys_id, side='right'))
+        for i in range(init_end_idx):
+            key = (strikes_arr[i], cps_arr[i])
+            tick_info = {
+                'bid': bids[i], 'ask': asks[i], 'seqno': seqnos[i],
+                'time': times_arr[i], 'prod_id': prod_ids_arr[i], 'spread': spreads[i]
+            }
+            q_last[key] = tick_info
+            # 若有效，同步更新 q_last_valid
+            if valid_mask[i]:
+                q_last_valid[key] = tick_info.copy()
+        
+        global_processed_up_to = init_end_idx
+        
+        for t_idx, (time_obj, target_sys_id, time_str) in enumerate(schedule_times):
+            # Step B: 二分搜尋找新增 ticks 範圍
+            target_end_idx = int(np.searchsorted(seqnos, target_sys_id, side='right'))
+            
+            # 保存 prev 狀態（用於 Q_Min）
+            q_last_at_prev = {k: dict(v) for k, v in q_last.items()}
+            
+            # 處理新增 ticks
+            products_with_new_ticks = set()
+            new_ticks_by_product = defaultdict(list)
+            
+            for i in range(global_processed_up_to, target_end_idx):
+                key = (strikes_arr[i], cps_arr[i])
+                tick_info = {
+                    'bid': bids[i], 'ask': asks[i], 'seqno': seqnos[i],
+                    'time': times_arr[i], 'prod_id': prod_ids_arr[i], 'spread': spreads[i]
+                }
+                q_last[key] = tick_info
+                products_with_new_ticks.add(key)
+                new_ticks_by_product[key].append(i)
+                
+                # 【Q_Last Valid Fallback】若有效，更新 q_last_valid
+                # 效能：O(1)，只在 tick 迴圈中多一個 if
+                if valid_mask[i]:
+                    q_last_valid[key] = tick_info.copy()
+            
+            global_processed_up_to = target_end_idx
+            
+            # Step C: 建立該時間點所有商品的結果（直接寫入 flat list）
+            for key, last_info in q_last.items():
+                strike, cp = key
+                
+                # ========== Q_Last Valid ==========
+                # 使用 q_last_valid（已在 tick 迴圈中增量維護）
+                valid_info = q_last_valid.get(key)
+                if valid_info:
+                    last_valid_bid = valid_info['bid']
+                    last_valid_ask = valid_info['ask']
+                    last_valid_seqno = valid_info['seqno']
+                    last_valid_time = valid_info['time']
+                    last_valid_prod_id = valid_info['prod_id']
+                else:
+                    # 該商品從頭到現在都沒有有效報價 → null
+                    last_valid_bid = np.nan
+                    last_valid_ask = np.nan
+                    last_valid_seqno = np.nan
+                    last_valid_time = np.nan
+                    last_valid_prod_id = np.nan
+                
+                # ========== Q_Min（有效報價版）==========
+                if key in products_with_new_ticks:
+                    # 收集候選 ticks（prev + 區間新增），只保留有效的
+                    prev_info = q_last_at_prev.get(key)
+                    
+                    # 初始化為 prev（若 prev 有效）
+                    min_spread = float('inf')
+                    min_seqno = -1
+                    min_bid = np.nan
+                    min_ask = np.nan
+                    
+                    if prev_info:
+                        p_bid, p_ask = prev_info['bid'], prev_info['ask']
+                        # 用 Python 原生判斷（不是 NumPy bool），避免型別問題
+                        if p_bid >= 0 and p_ask > 0 and p_ask > p_bid:
+                            min_spread = prev_info['spread']
+                            min_seqno = prev_info['seqno']
+                            min_bid = p_bid
+                            min_ask = p_ask
+                    
+                    # 掃描區間內的新 ticks，只看有效的
+                    for i in new_ticks_by_product[key]:
+                        if not valid_mask[i]:
+                            continue  # 跳過無效 tick
+                        s = spreads[i]
+                        seq = seqnos[i]
+                        if s < min_spread or (s == min_spread and seq > min_seqno):
+                            min_spread = s
+                            min_seqno = seq
+                            min_bid = bids[i]
+                            min_ask = asks[i]
+                else:
+                    # 沒有新 tick → 沿用 prev 的 Q_Min（若 prev 有效）
+                    prev_info = q_last_at_prev.get(key, last_info)
+                    p_bid, p_ask = prev_info['bid'], prev_info['ask']
+                    if p_bid >= 0 and p_ask > 0 and p_ask > p_bid:
+                        min_bid = p_bid
+                        min_ask = p_ask
+                        min_spread = prev_info['spread']
+                        min_seqno = prev_info['seqno']
+                    else:
+                        min_bid = np.nan
+                        min_ask = np.nan
+                        min_spread = np.nan
+                        min_seqno = np.nan
+                
+                # 直接寫入 flat row（含時間點資訊）
+                all_rows.append({
+                    'Time': time_str,
+                    'Snapshot_SysID': target_sys_id,
+                    'Strike': strike,
+                    'CP': cp,
+                    # Raw Q_Last（原始最新值，可能無效）
+                    'My_Last_Raw_Bid': last_info['bid'],
+                    'My_Last_Raw_Ask': last_info['ask'],
+                    # Valid Q_Last（經過 fallback 的有效值）
+                    'My_Last_Bid': last_valid_bid,
+                    'My_Last_Ask': last_valid_ask,
+                    'My_Last_SysID': last_valid_seqno,
+                    'My_Last_Time': last_valid_time,
+                    'My_Last_ProdID': last_valid_prod_id,
+                    # Q_Min（只取有效報價）
+                    'My_Min_Bid': min_bid,
+                    'My_Min_Ask': min_ask,
+                    'My_Min_Spread': min_spread,
+                    'My_Min_SysID': min_seqno
+                })
+            
+            # 進度報告
+            if (t_idx + 1) % 100 == 0 or t_idx == 0:
+                print(f"  增量重建進度: {t_idx + 1}/{n_times} ({time_str})")
+        
+        # 最後一次性建 DataFrame（避免每個時間點都建一次）
+        result_df = pd.DataFrame(all_rows)
+        print(f"  增量重建完成: 共 {n_times} 個時間點, {len(result_df)} 筆")
+        return result_df
 
 from datetime import datetime, timedelta
 

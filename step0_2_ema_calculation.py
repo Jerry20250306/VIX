@@ -143,9 +143,14 @@ def calculate_ema_for_series(time_series_df):
     # 複製資料並按時間排序（確保迭代順序正確）
     df = time_series_df.sort_values('Time').copy()
     
-    # 【優化】預先取出 spread 值為 Python list，避免 pandas 迭代開銷
+    # 【優化】預先取出 spread 和 time 為 Python list，避免 pandas 迭代開銷
     spreads = df['Q_Min_Valid_Spread'].tolist()
+    times = df['Time'].tolist()
     n = len(spreads)
+    
+    # 09:00:00 正式開盤時間（盤前 08:45~09:00 的 EMA 歷史不帶入）
+    # Time 欄位可能是 int(90000) 或 str('090000')，兩種都檢查
+    MARKET_OPEN_TIMES = {90000, '90000', '090000'}
     
     # 【優化】使用 list 收集結果，最後一次賦值到 DataFrame
     ema_list = [None] * n
@@ -157,6 +162,10 @@ def calculate_ema_for_series(time_series_df):
     # 逐筆迭代計算 EMA
     for i in range(n):
         spread = spreads[i]
+        
+        # 【09:00 重置】正式開盤時，清除盤前 EMA 歷史
+        if times[i] in MARKET_OPEN_TIMES:
+            prev_ema = None
         
         # 檢查價差是否為 null（無有效報價）
         is_null = (spread == "null" or pd.isna(spread))

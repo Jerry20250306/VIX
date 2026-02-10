@@ -734,10 +734,26 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         print(f"=== Step 0 步驟一：獲取序列有效報價 (單一時間點) ===")
         print(f"目標時間: {target_time}")
     
+    # 初始化路徑管理器
+    from vix_utils import DataPathManager
+    path_manager = DataPathManager(raw_base_dir="資料來源", prod_base_dir="資料來源")
     
-    
-    # 1. 載入原始資料
-    print("\n>>> 載入原始 Ticks...")
+    try:
+        # 自動解析路徑
+        print(f"\n>>> 解析資料路徑 (日期: {target_date})...")
+        raw_dir = path_manager.resolve_raw_path(target_date)
+        prod_dir_path = path_manager.resolve_prod_path(target_date) # 這是 PROD 資料夾路徑
+        
+        print(f"  原始資料目錄 (Raw): {os.path.basename(os.path.dirname(raw_dir))}/{os.path.basename(raw_dir)}")
+        print(f"  PROD 資料目錄: {os.path.basename(prod_dir_path)}")
+        
+        # PROD 檔案預期在 PROD 目錄下
+        # 注意：雖然變數叫 prod_dir，但在此腳本原本邏輯是指向包含 PROD .tsv 的目錄
+        prod_dir = prod_dir_path 
+        
+    except FileNotFoundError as e:
+        print(f"路徑解析錯誤: {e}")
+        return
     loader = RawDataLoader(raw_dir, target_date)
     near_ticks, next_ticks, terms = loader.load_and_filter()
     
@@ -785,120 +801,119 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             print(f"  共 {len(time_points)} 個時間點")
             
             term_results = []
-            all_reports = []  # 儲存所有時間點的報表 DataFrame
-            # 使用 PROD Line 2 的 SysID (054500) 作為第一筆的 prev_sys_id
-            prev_sys_id = initial_sys_id
             
-            for idx, time_str in enumerate(time_points, 1):
+            # 建立排程參數列表
+            schedule_times = []
+            for time_str in time_points:
                 target_row = schedule[schedule['orig_time_str'] == time_str].iloc[0]
-                t_obj = target_row['time_obj']
-                sys_id = target_row['sys_id']
-                
-                print(f"  處理 {idx}/{len(time_points)}: {time_str} (SysID={sys_id})")
-                
-                # 重建快照 (搜尋區間: prev_sys_id < SeqNo <= sys_id)
-                reconstructor = SnapshotReconstructor(ticks)
-                snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id)
-                
-                # 更新 prev_sys_id 供下一次迭代
-                prev_sys_id = sys_id
-                
-                # 產生報表資料（但不輸出個別 CSV）
-                # 建立報表 DataFrame
-                report_rows = []
-                for _, row in snapshot.iterrows():
-                    strike = row['Strike']
-                    cp = row['CP']
-                    
-                    q_last_bid = row['My_Last_Bid']
-                    q_last_ask = row['My_Last_Ask']
-                    q_last_sysid = row['My_Last_SysID']
-                    q_last_time = row['My_Last_Time']
-                    
-                    q_min_bid = row['My_Min_Bid']
-                    q_min_ask = row['My_Min_Ask']
-                    q_min_spread = row['My_Min_Spread']
-                    q_min_sysid = row.get('My_Min_SysID', np.nan)  # 新增：Q_Min 的系統序號
-                    
-                    
-                    q_last_valid, q_last_reason = check_valid_quote(q_last_bid, q_last_ask)
-                    q_min_valid, q_min_reason = check_valid_quote(q_min_bid, q_min_ask)
-                    
-                    # 計算 Q_Last_Valid 欄位
-                    if q_last_valid:
-                        q_last_valid_bid = q_last_bid
-                        q_last_valid_ask = q_last_ask
-                        q_last_valid_spread = q_last_ask - q_last_bid
-                        q_last_valid_mid = (q_last_bid + q_last_ask) / 2
-                    else:
-                        q_last_valid_bid = "null"
-                        q_last_valid_ask = "null"
-                        q_last_valid_spread = "null"
-                        q_last_valid_mid = "null"
-                    
-                    # 計算 Q_Min_Valid 欄位
-                    if q_min_valid:
-                        q_min_valid_bid = q_min_bid
-                        q_min_valid_ask = q_min_ask
-                        q_min_valid_spread = q_min_ask - q_min_bid
-                        q_min_valid_mid = (q_min_bid + q_min_ask) / 2
-                    else:
-                        q_min_valid_bid = "null"
-                        q_min_valid_ask = "null"
-                        q_min_valid_spread = "null"
-                        q_min_valid_mid = "null"
-
-                    
-                    report_rows.append({
-                        'Term': term_name,
-                        'Time': time_str,
-                        'Snapshot_SysID': sys_id,
-                        'Strike': strike,
-                        'CP': cp,
-                        'Q_last_Bid': q_last_bid,
-                        'Q_last_Ask': q_last_ask,
-                        'Q_last_Spread': q_last_ask - q_last_bid if pd.notna(q_last_bid) and pd.notna(q_last_ask) else np.nan,
-                        'Q_last_SysID': q_last_sysid,
-                        'Q_last_Time': q_last_time,
-                        'Q_last_Valid': q_last_valid,
-                        'Q_last_Reason': q_last_reason,
-                        'Q_Last_Valid_Bid': q_last_valid_bid,
-                        'Q_Last_Valid_Ask': q_last_valid_ask,
-                        'Q_Last_Valid_Spread': q_last_valid_spread,
-                        'Q_Last_Valid_Mid': q_last_valid_mid,
-                        'Q_min_Bid': q_min_bid,
-                        'Q_min_Ask': q_min_ask,
-                        'Q_min_Spread': q_min_spread,
-                        'Q_min_Valid': q_min_valid,
-                        'Q_min_Reason': q_min_reason,
-                        'Q_Min_Valid_Bid': q_min_valid_bid,
-                        'Q_Min_Valid_Ask': q_min_valid_ask,
-                        'Q_Min_Valid_Spread': q_min_valid_spread,
-                        'Q_Min_Valid_Mid': q_min_valid_mid,
-                        'Q_min_SysID': q_min_sysid,  # 新增：Q_Min 的系統序號
-                    })
-                
-                report_df = pd.DataFrame(report_rows)
-                all_reports.append(report_df)
-                
-                # 儲存結果（供 HTML 使用）
+                schedule_times.append((
+                    target_row['time_obj'],
+                    target_row['sys_id'],
+                    time_str
+                ))
+            
+            # 【效能優化】只建構一次 Reconstructor，一次處理所有時間點
+            reconstructor = SnapshotReconstructor(ticks)
+            snapshot_df = reconstructor.reconstruct_all(schedule_times, initial_sys_id)
+            
+            # 【效能優化】向量化報表建立（取代 iterrows）
+            snapshot_df['Term'] = term_name
+            
+            # 欄位重命名對齊報表格式
+            snapshot_df = snapshot_df.rename(columns={
+                'My_Last_Bid': 'Q_last_Bid',
+                'My_Last_Ask': 'Q_last_Ask',
+                'My_Last_SysID': 'Q_last_SysID',
+                'My_Last_Time': 'Q_last_Time',
+                'My_Min_Bid': 'Q_min_Bid',
+                'My_Min_Ask': 'Q_min_Ask',
+                'My_Min_Spread': 'Q_min_Spread',
+                'My_Min_SysID': 'Q_min_SysID',
+            })
+            
+            # Q_Last Spread
+            snapshot_df['Q_last_Spread'] = np.where(
+                snapshot_df['Q_last_Bid'].notna() & snapshot_df['Q_last_Ask'].notna(),
+                snapshot_df['Q_last_Ask'] - snapshot_df['Q_last_Bid'],
+                np.nan
+            )
+            
+            # 向量化 Valid Quote 判定
+            # 條件: bid >= 0, ask > 0, ask > bid (即 bid 和 ask 都是數字)
+            q_last_bid = snapshot_df['Q_last_Bid']
+            q_last_ask = snapshot_df['Q_last_Ask']
+            q_last_valid = (
+                q_last_bid.notna() & q_last_ask.notna() &
+                (q_last_bid >= 0) & (q_last_ask > 0) & (q_last_ask > q_last_bid)
+            )
+            
+            q_min_bid = snapshot_df['Q_min_Bid']
+            q_min_ask = snapshot_df['Q_min_Ask']
+            q_min_valid = (
+                q_min_bid.notna() & q_min_ask.notna() &
+                (q_min_bid >= 0) & (q_min_ask > 0) & (q_min_ask > q_min_bid)
+            )
+            
+            snapshot_df['Q_last_Valid'] = q_last_valid
+            snapshot_df['Q_min_Valid'] = q_min_valid
+            
+            # Valid 時的 Reason
+            snapshot_df['Q_last_Reason'] = np.where(q_last_valid, '', '')
+            snapshot_df['Q_min_Reason'] = np.where(q_min_valid, '', '')
+            # 無效時填入原因
+            invalid_last = ~q_last_valid
+            snapshot_df.loc[invalid_last & (q_last_bid.isna() | q_last_ask.isna()), 'Q_last_Reason'] = '缺少報價'
+            snapshot_df.loc[invalid_last & q_last_bid.notna() & q_last_ask.notna() & (q_last_bid < 0), 'Q_last_Reason'] = '買價為負'
+            snapshot_df.loc[invalid_last & q_last_bid.notna() & q_last_ask.notna() & (q_last_ask <= 0), 'Q_last_Reason'] = '賣價須大於0'
+            snapshot_df.loc[invalid_last & q_last_bid.notna() & q_last_ask.notna() & (q_last_bid >= 0) & (q_last_ask > 0) & (q_last_ask <= q_last_bid), 'Q_last_Reason'] = '賣價須大於買價'
+            # 單邊報價（Bid=0 或 Ask=0 但另一邊有值）
+            snapshot_df.loc[invalid_last & ((q_last_bid == 0) | (q_last_ask == 0)), 'Q_last_Reason'] = '單邊報價(Bid=0或Ask=0)'
+            
+            invalid_min = ~q_min_valid
+            snapshot_df.loc[invalid_min & (q_min_bid.isna() | q_min_ask.isna()), 'Q_min_Reason'] = '缺少報價'
+            snapshot_df.loc[invalid_min & q_min_bid.notna() & q_min_ask.notna() & (q_min_bid < 0), 'Q_min_Reason'] = '買價為負'
+            snapshot_df.loc[invalid_min & q_min_bid.notna() & q_min_ask.notna() & (q_min_ask <= 0), 'Q_min_Reason'] = '賣價須大於0'
+            snapshot_df.loc[invalid_min & q_min_bid.notna() & q_min_ask.notna() & (q_min_bid >= 0) & (q_min_ask > 0) & (q_min_ask <= q_min_bid), 'Q_min_Reason'] = '賣價須大於買價'
+            snapshot_df.loc[invalid_min & ((q_min_bid == 0) | (q_min_ask == 0)), 'Q_min_Reason'] = '單邊報價(Bid=0或Ask=0)'
+            
+            # Q_Last_Valid 衍生欄位
+            snapshot_df['Q_Last_Valid_Bid'] = np.where(q_last_valid, q_last_bid, "null")
+            snapshot_df['Q_Last_Valid_Ask'] = np.where(q_last_valid, q_last_ask, "null")
+            snapshot_df['Q_Last_Valid_Spread'] = np.where(q_last_valid, q_last_ask - q_last_bid, "null")
+            snapshot_df['Q_Last_Valid_Mid'] = np.where(q_last_valid, (q_last_bid + q_last_ask) / 2, "null")
+            
+            # Q_Min_Valid 衍生欄位
+            snapshot_df['Q_Min_Valid_Bid'] = np.where(q_min_valid, q_min_bid, "null")
+            snapshot_df['Q_Min_Valid_Ask'] = np.where(q_min_valid, q_min_ask, "null")
+            snapshot_df['Q_Min_Valid_Spread'] = np.where(q_min_valid, q_min_ask - q_min_bid, "null")
+            snapshot_df['Q_Min_Valid_Mid'] = np.where(q_min_valid, (q_min_bid + q_min_ask) / 2, "null")
+            
+            # 整理欄位順序
+            report_cols = [
+                'Term', 'Time', 'Snapshot_SysID', 'Strike', 'CP',
+                'Q_last_Bid', 'Q_last_Ask', 'Q_last_Spread', 'Q_last_SysID', 'Q_last_Time',
+                'Q_last_Valid', 'Q_last_Reason',
+                'Q_Last_Valid_Bid', 'Q_Last_Valid_Ask', 'Q_Last_Valid_Spread', 'Q_Last_Valid_Mid',
+                'Q_min_Bid', 'Q_min_Ask', 'Q_min_Spread', 'Q_min_Valid', 'Q_min_Reason',
+                'Q_Min_Valid_Bid', 'Q_Min_Valid_Ask', 'Q_Min_Valid_Spread', 'Q_Min_Valid_Mid',
+                'Q_min_SysID',
+            ]
+            combined_df = snapshot_df[[c for c in report_cols if c in snapshot_df.columns]]
+            
+            # 為 HTML 報表建立 term_results（按時間點分組）
+            for time_str_i, sys_id_i in [(t[2], t[1]) for t in schedule_times]:
+                time_data = combined_df[combined_df['Time'] == time_str_i]
                 term_results.append({
-                    'time': time_str,
-                    'sys_id': sys_id,
-                    'data': report_df
+                    'time': time_str_i,
+                    'sys_id': sys_id_i,
+                    'data': time_data
                 })
             
-            # 合併所有時間點的報表為一個 CSV
-            if all_reports:
-                combined_df = pd.concat(all_reports, ignore_index=True)
-                
-                # 根據處理模式決定檔名
-                csv_output = f"output/驗證{target_date}_{term_name}_step1.csv"
-                
-                combined_df.to_csv(csv_output, index=False, encoding='utf-8-sig')
-                print(f"\n  {term_name} 整合 CSV 已儲存: {csv_output}")
-                print(f"  總筆數: {len(combined_df)} (涵蓋 {len(time_points)} 個時間點)")
-            
+            # 儲存 CSV
+            csv_output = f"output/驗證{target_date}_{term_name}_step1.csv"
+            combined_df.to_csv(csv_output, index=False, encoding='utf-8-sig')
+            print(f"\n  {term_name} 整合 CSV 已儲存: {csv_output}")
+            print(f"  總筆數: {len(combined_df)} (涵蓋 {len(time_points)} 個時間點)")
             all_results[term_name] = term_results
         else:
             # 處理單一時間點

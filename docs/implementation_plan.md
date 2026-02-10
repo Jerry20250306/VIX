@@ -55,7 +55,7 @@
                     - Condition 2: Spread < lambda (lambda = 0.5)
                     - Condition 3: Bid_t > Q_hat_Mid_t-1 (買價突破上一期中價)
                     - Condition 4: Ask_t < Q_hat_Mid_t-1 且 Bid_t > 0 (賣價跌破上一期中價)
-                    - **例外**：若為當日第一筆資料或 Q_hat_Mid_t-1 為 null，則視為非異常值。
+                    - **例外**：若為當日第一筆資料(84515)或 EMA_t-1 為 null，則直接視為非異常值。
             - **步驟三：篩選後報價之決定 (Determine Filtered Quotes)**:
                 - **優先順序 1**: 若 Q_Last_Valid_t 為非 Null 且非異常值 → Q_hat_t = Q_Last_Valid_t
                 - **優先順序 2**: 若 Q_Last_Valid_t 為異常值或 Null，但 Q_Min_Valid_t 有雙邊報價且非異常值 → Q_hat_t = Q_Min_Valid_t

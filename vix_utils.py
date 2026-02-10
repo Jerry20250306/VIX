@@ -5,6 +5,92 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+class DataPathManager:
+    """
+    負責管理資料來源路徑 (Configuration of Data Paths)
+    
+    功能：
+    1. 指定 Raw Data 與 Prod Data 的基礎目錄 (Base Directory)
+    2. 根據目標日期 (Target Date) 自動尋找對應的資料夾
+    """
+    def __init__(self, raw_base_dir="資料來源", prod_base_dir="資料來源"):
+        """
+        Args:
+            raw_base_dir: 原始 Tick 資料的基礎目錄 (預設: "資料來源")
+            prod_base_dir: PROD 驗證資料的基礎目錄 (預設: "資料來源")
+        """
+        # 處理相對路徑，確保從專案根目錄開始
+        self.project_root = os.path.dirname(os.path.abspath(__file__))
+        self.raw_base_dir = os.path.join(self.project_root, raw_base_dir)
+        self.prod_base_dir = os.path.join(self.project_root, prod_base_dir)
+        
+    def resolve_raw_path(self, target_date):
+        """
+        解析原始資料路徑
+        邏輯：在 raw_base_dir 中搜尋包含 target_date 的資料夾
+        
+        Args:
+            target_date: 目標日期字串 (e.g., "20251231")
+            
+        Returns:
+            str: 找到的原始資料目錄路徑
+        """
+        if not os.path.exists(self.raw_base_dir):
+            raise FileNotFoundError(f"找不到基礎目錄: {self.raw_base_dir}")
+            
+        # 搜尋模式：包含日期的資料夾
+        pattern = os.path.join(self.raw_base_dir, f"*{target_date}*")
+        all_candidates = [d for d in glob.glob(pattern) if os.path.isdir(d)]
+        
+        if not all_candidates:
+            raise FileNotFoundError(f"在 {self.raw_base_dir} 中找不到包含 {target_date} 的資料夾")
+            
+        # 過濾掉完全等於 target_date 的資料夾 (因為那是 PROD 資料夾的命名慣例)
+        candidates = [d for d in all_candidates if os.path.basename(d) != target_date]
+        
+        # 如果過濾後沒了，就只好用原本的 (可能 raw folder 真的就是那個名字，或者沒有分)
+        if not candidates:
+            candidates = all_candidates
+            
+        # 若有多個，優先選擇長度最長或最短？
+        # 目前假設只有一個匹配，若有多個則取第一個並印出警告
+        if len(candidates) > 1:
+            print(f"警告: 找到多個符合 {target_date} 的原始資料夾，使用第一個: {os.path.basename(candidates[0])}")
+            print(f"候選列表: {[os.path.basename(d) for d in candidates]}")
+            
+        # 特別處理：如果資料夾內有 temp 子目錄（目前結構），則指向 temp
+        # 根據這幾次的結構: J002.../temp/*.csv
+        target_dir = candidates[0]
+        temp_dir = os.path.join(target_dir, "temp")
+        if os.path.exists(temp_dir) and os.path.isdir(temp_dir):
+            return temp_dir
+            
+        return target_dir
+
+    def resolve_prod_path(self, target_date):
+        """
+        解析 PROD 資料路徑
+        邏輯：在 prod_base_dir 中尋找名稱完全符合 target_date 的資料夾
+        
+        Args:
+            target_date: 目標日期字串 (e.g., "20251231")
+            
+        Returns:
+            str: 找到的 PROD 資料目錄路徑
+        """
+        if not os.path.exists(self.prod_base_dir):
+            raise FileNotFoundError(f"找不到基礎目錄: {self.prod_base_dir}")
+            
+        # 直接路徑匹配
+        target_dir = os.path.join(self.prod_base_dir, target_date)
+        
+        if not os.path.exists(target_dir):
+            # 嘗試模糊搜尋? 暫時不，PROD 通常路徑較固定
+            raise FileNotFoundError(f"找不到 PROD 資料夾: {target_dir}")
+            
+        return target_dir
+
+
 class RawDataLoader:
     """負責讀取與初步處理原始 Tick 資料"""
     def __init__(self, raw_dir, target_date):
