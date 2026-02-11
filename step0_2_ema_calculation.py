@@ -477,6 +477,15 @@ def add_ema_and_outlier_detection(df, term_name):
         for i, idx in enumerate(group_indices):
             row = result_df.loc[idx]
             
+            # 【09:00:00 重置】正式開盤時，清除盤前 Q_hat 歷史
+            # 與 EMA 重置同步，讓 Gamma 判定視為第一筆（Q_hat_Mid_prev = None → gamma = 2.0）
+            current_time = row['Time']
+            MARKET_OPEN_TIMES = {90000, '90000', '090000'}
+            if current_time in MARKET_OPEN_TIMES:
+                Q_hat_Bid_prev = None
+                Q_hat_Ask_prev = None
+                Q_hat_Mid_prev = None
+            
             # 取得當前 EMA
             current_ema = row['EMA']
             
