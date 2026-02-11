@@ -391,10 +391,9 @@ class SnapshotReconstructor:
                                          'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread'])
 
         # 計算 Spread = Ask - Bid
-        # 單邊報價 (Bid=0 或 Ask=0) 視為無效，給予極大 Spread 值
+        # 有效性由 valid_mask (bid >= 0, ask > 0, ask > bid) 控制
+        # Bid=0 但 Ask > 0 的報價是有效的，Spread 應正常計算
         all_leq_target['Spread'] = all_leq_target['svel_i081_best_sell_price1'] - all_leq_target['svel_i081_best_buy_price1']
-        no_quote_mask = (all_leq_target['svel_i081_best_buy_price1'] == 0) | (all_leq_target['svel_i081_best_sell_price1'] == 0)
-        all_leq_target.loc[no_quote_mask, 'Spread'] = 999999
         
         # =====================================================================
         # Step 2: 找每個 Strike/CP 在 SeqNo <= prev_sys_id 的「最後一筆」SeqNo
@@ -524,10 +523,9 @@ class SnapshotReconstructor:
         times_arr = ticks_sorted['svel_i081_time'].values
         prod_ids_arr = ticks_sorted['svel_i081_prod_id'].values
         
-        # 預計算 Spread
+        # 預計算 Spread = Ask - Bid
+        # 有效性由 valid_mask 控制，Spread 正常計算即可
         spreads = asks - bids
-        no_quote = (bids == 0) | (asks == 0)
-        spreads[no_quote] = 999999
         
         # 預計算有效性（bid >= 0, ask > 0, ask > bid）
         valid_mask = (bids >= 0) & (asks > 0) & (asks > bids)
