@@ -283,7 +283,8 @@ def determine_gamma(current_bid, current_mid, Q_hat_Mid_t_minus_1):
     prev_mid_val = float(Q_hat_Mid_t_minus_1)
     
     # ----- 情況 2：Mid_t <= Q_hat_Mid_t-1（中價持平或下跌）-----
-    if mid_val <= prev_mid_val:
+    # 注意：加入浮點數容差 (1e-9)，避免微小誤差導致誤判為上漲 (如 4.80000...01 > 4.8)
+    if mid_val <= prev_mid_val + 1e-9:
         return GAMMA_1, f"Bid_t = {bid_val} > 0 且 Mid_t({mid_val}) <= Q_hat_Mid_t-1({prev_mid_val}) → γ = γ₁ = {GAMMA_1}"
     
     # ----- 情況 3：Mid_t > Q_hat_Mid_t-1（中價上漲）-----
