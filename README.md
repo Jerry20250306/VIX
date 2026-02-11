@@ -1,59 +1,93 @@
-# VIX 計算專案
+# VIX 計算專案 (Taiwan VIX Calculation Project)
 
-Taiwan VIX (波動率指數) 計算實作專案
+本專案實作台灣期貨交易所的 VIX (波動率指數) 計算邏輯，並提供完整的驗證與分析工具。
 
-## 專案說明
+## 📁 目錄結構
 
-本專案實作台灣期貨交易所的 VIX (波動率指數) 計算邏輯，包含：
+- **`step0_valid_quotes.py`**: 核心程式 - 步驟一：有效報價篩選。
+- **`step0_2_ema_calculation.py`**: 核心程式 - 步驟二與三：EMA 計算與異常值偵測。
+- **`vix_utils.py`**: 共用工具模組，包含資料來源路徑管理。
+- **`reconstruct_order_book.py`**: 訂單簿重建邏輯。
+- **`validation/`**: 驗證與測試腳本目錄（包含所有分析、檢查與測試程式）。
+- **`output/`**: 程式執行產出的報表與 CSV 檔案。
+- **`資料來源/`**: 存放原始行情資料與 PROD 比對資料。
 
-### 已完成功能
+## 🚀 快速開始
 
-- **訂單簿重建** (`reconstruct_order_book.py`): 從原始 tick 資料重建完整的訂單簿快照
-- **Step 0-1: 有效報價驗證** (`step0_valid_quotes.py`): 
-  - 驗證 Q_last 和 Q_min 報價的有效性
-  - 產生詳細報表包含所有驗證結果
-- **Step 0-2: EMA 異常值偵測** (`step0_2_ema_calculation.py`):
-  - 計算價差的指數移動平均 (EMA, α=0.95)
-  - 使用 4 個條件判定異常值
-  - 自動判定 γ 參數 (γ₀=1.2, γ₁=2.0, γ₂=2.5)
-  - 提供詳細的 EMA 和 Gamma 計算過程說明
+### 1. 環境設定
 
-### 資料結構
+本專案使用 Python 3，請確保已安裝以下套件：
 
-- **原始資料**: Tick-by-tick 交易資料（需放置於 `資料來源/` 目錄）
-- **排程資料**: NearPROD 和 NextPROD 快照時間排程
-- **輸出報表**: CSV 和 HTML 格式的詳細分析報表
-
-### 主要檔案
-
-- `reconstruct_order_book.py`: 訂單簿重建模組
-- `step0_valid_quotes.py`: 步驟一 - 有效報價選擇
-- `step0_2_ema_calculation.py`: 步驟二 - EMA 異常值偵測
-- `vix_utils.py`: 共用工具函數
-
-### 使用方法
-
-```python
-# 步驟一：生成有效報價報表（前5個時間點）
-python step0_valid_quotes.py
-
-# 步驟二：執行 EMA 異常值偵測
-python step0_2_ema_calculation.py
+```bash
+pip install pandas numpy
 ```
 
-### 參考文件
+### 2. 資料來源設定
 
-- 附錄 3: 選擇權序列價格篩選機制
+本系統支援動態偵測資料來源。您不需要修改程式碼中的路徑，從而適應不同的執行環境。
 
-### 開發狀態
+**方式 A：使用預設結構**
+將資料放入 `資料來源` 目錄下，系統會自動根據日期尋找：
 
-- ✅ Step 0-1: 有效報價驗證
-- ✅ Step 0-2: EMA 異常值偵測
-- ⏳ Step 0-3: 篩選後報價決定
-- ⏳ 後續 VIX 計算步驟
+- Raw Data: `資料來源/J002-xxxxxx_YYYYMMDD/temp` (或類似格式)
+- Prod Data: `資料來源/YYYYMMDD` 或 `資料來源/YYYYMMDD_vix`
 
-### 技術棧
+**方式 B：使用環境變數 (推薦用於不同電腦/環境)**
+設定以下環境變數即可覆蓋預設路徑：
 
-- Python 3.x
-- pandas, numpy
-- 自訂訂單簿重建引擎
+- `VIX_DATA_SOURCE`: 指定 Raw Data 的基礎目錄。
+- `VIX_PROD_SOURCE`: 指定 PROD Data 的基礎目錄。
+
+### 3. 執行計算
+
+**執行步驟一：有效報價篩選**
+
+```bash
+# 預設使用 20251231 資料
+python step0_valid_quotes.py
+
+# 指定其他日期
+python step0_valid_quotes.py --date 20260101
+```
+
+**執行步驟二與三：EMA 計算**
+
+```bash
+# 預設使用 20251231 資料
+python step0_2_ema_calculation.py
+
+# 指定其他日期
+python step0_2_ema_calculation.py 20260101
+```
+
+## 🧪 驗證與測試
+
+所有驗證腳本皆位於 `validation/` 目錄中。
+
+### 執行完整流程測試
+
+此腳本會模擬從步驟一到步驟三的完整流程，並與 PROD 資料進行比對，確保計算邏輯正確。
+
+```bash
+python validation/test_full_pipeline.py
+```
+
+### 驗證路徑解析
+
+測試系統是否能正確抓取當前環境的資料路徑：
+
+```bash
+python validation/test_path_resolution.py
+```
+
+## 📊 開發狀態
+
+- ✅ **Step 0-1 (有效報價)**: 已完成，邏輯與 PROD 一致。
+- ✅ **Step 0-2 (EMA 異常偵測)**: 已完成，邏輯與 PROD 一致。
+- ✅ **Step 0-3 (篩選後報價)**: 已完成，邏輯與 PROD 一致。
+- ✅ **路徑管理**: 已實作 `get_vix_config` 統一管理，支援動態路徑。
+
+## 📝 參考文件
+
+- `spec.md`: 選擇權序列價格篩選機制技術規格。
+- `walkthrough.md`: 最近一次的重構與驗證紀錄。

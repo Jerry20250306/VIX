@@ -615,7 +615,7 @@ def add_ema_and_outlier_detection(df, term_name):
 # 主程式入口（測試用）
 # ==============================================================================
 
-def main():
+def main(target_date=None):
     """
     測試 EMA 計算與異常值偵測
     
@@ -629,12 +629,17 @@ def main():
     print("=" * 60)
     print()
     
-    # 資料日期（與 step0_valid_quotes.py 一致）
-    target_date = "20251231"
+    # 取得設定
+    from vix_utils import get_vix_config
+    config = get_vix_config(target_date)
+    final_date = config["target_date"]
+    
+    print(f"[Config] Target Date: {final_date}")
     
     # 讀取步驟一產生的 CSV
-    near_csv = f"output/驗證{target_date}_Near_step1.csv"
-    next_csv = f"output/驗證{target_date}_Next_step1.csv"
+    # 注意：之前的步驟一輸出檔名含有日期
+    near_csv = f"output/驗證{final_date}_Near_step1.csv"
+    next_csv = f"output/驗證{final_date}_Next_step1.csv"
     
     print(f">>> 讀取步驟一結果...")
     near_df = pd.read_csv(near_csv)
@@ -878,4 +883,11 @@ def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID'):
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    # 簡單支援從命令列傳入第一個參數作為日期 (如果不是 --date 的話)
+    # 但因為 get_vix_config 會處理 --date，這裡只要負責把參數傳給 main 即可
+    # 如果使用者用 python script.py 20251231
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        main(sys.argv[1])
+    else:
+        main()

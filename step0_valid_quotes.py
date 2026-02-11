@@ -697,7 +697,7 @@ def generate_validity_report(snapshot_df, term_name, target_time, snapshot_sysid
     
     return report_df
 
-def main(process_all_times=False, target_time=None, end_time=None, max_time_points=None):
+def main(process_all_times=False, target_time=None, end_time=None, max_time_points=None, target_date=None):
     """執行 Step 0 步驟一：獲取序列有效報價
     
     Args:
@@ -712,48 +712,43 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         3. end_time="HHMMSS": 處理從第一個時間點到 end_time（包含）
         4. target_time="HHMMSS": 只處理單一時間點（預設 "120015"）
     """
-    # 設定參數 - 使用相對路徑
-    raw_dir = r"資料來源\J002-11300041_20251231\temp"
-    prod_dir = r"資料來源\20251231"
-    target_date = "20251231"
+    # 初始化路徑管理器與取得設定
+    from vix_utils import get_vix_config
     
-    # 決定處理模式
-    if process_all_times:
-        mode = "全天處理"
-        print(f"=== Step 0 步驟一：獲取序列有效報價 (全天處理) ===")
-    elif max_time_points:
-        mode = "測試處理"
-        print(f"=== Step 0 步驟一：獲取序列有效報價 (測試：前{max_time_points}個時間點) ===")
-    elif end_time:
-        mode = "範圍處理"
-        print(f"=== Step 0 步驟一：獲取序列有效報價 (範圍處理：第一筆 → {end_time}) ===")
-    else:
-        mode = "單一時間點"
-        if target_time is None:
-            target_time = "120015"
-        print(f"=== Step 0 步驟一：獲取序列有效報價 (單一時間點) ===")
-        print(f"目標時間: {target_time}")
+    # 若有傳入參數則使用參數，否則 get_vix_config 會嘗試抓 sys.argv 或用預設值
+    config = get_vix_config(target_time if (target_time and len(target_time) == 8) else target_date)
+    # 注意: target_time 在此腳本原本是用 HHMMSS，target_date 是日期
+    # 但 main 函式的簽名有點混亂，我們這裡假設 target_date 是日期參數
     
-    # 初始化路徑管理器
-    from vix_utils import DataPathManager
-    path_manager = DataPathManager(raw_base_dir="資料來源", prod_base_dir="資料來源")
+    # 修正：main 函式目前的參數 target_time 其實是用來過濾時間點 HHMMSS，不是日期
+    # 我們需要在 main 增加 target_date 參數，或者讓 get_vix_config 自己處理
     
-    try:
-        # 自動解析路徑
-        print(f"\n>>> 解析資料路徑 (日期: {target_date})...")
-        raw_dir = path_manager.resolve_raw_path(target_date)
-        prod_dir_path = path_manager.resolve_prod_path(target_date) # 這是 PROD 資料夾路徑
-        
-        print(f"  原始資料目錄 (Raw): {os.path.basename(os.path.dirname(raw_dir))}/{os.path.basename(raw_dir)}")
-        print(f"  PROD 資料目錄: {os.path.basename(prod_dir_path)}")
-        
-        # PROD 檔案預期在 PROD 目錄下
-        # 注意：雖然變數叫 prod_dir，但在此腳本原本邏輯是指向包含 PROD .tsv 的目錄
-        prod_dir = prod_dir_path 
-        
-    except FileNotFoundError as e:
-        print(f"路徑解析錯誤: {e}")
+    # 為了不破壞現有 main 簽名太嚴重，我們先用 get_vix_config 取得全域設定
+    # 這裡暫時忽略 main 傳入的 target_date (因為它不在參數列表裡，我們將新增它)
+    
+    # 使用 config 的值
+    final_date = config["target_date"]
+    raw_dir = config["raw_dir"]
+    prod_dir = config["prod_dir"]
+    
+    if not raw_dir or not prod_dir:
+        print("錯誤: 無法解析資料路徑，請檢查日期或環境變數。")
         return
+        
+    print(f"\n>>> 解析資料路徑 (日期: {final_date})...")
+    print(f"  原始資料目錄 (Raw): {os.path.basename(os.path.dirname(raw_dir))}/{os.path.basename(raw_dir)}")
+    print(f"  PROD 資料目錄: {os.path.basename(prod_dir)}")
+    
+    if not os.path.exists(prod_dir):
+         print(f"錯誤: PROD 目錄不存在: {prod_dir}")
+         return
+         
+    target_date = final_date # 更新本地變數
+    prod_dir_path = prod_dir # 更新本地變數
+        
+    # PROD 檔案預期在 PROD 目錄下
+    # 注意：雖然變數叫 prod_dir，但在此腳本原本邏輯是指向包含 PROD .tsv 的目錄
+    # prod_dir = prod_dir_path # 變數名稱已一致，此行可省略
     loader = RawDataLoader(raw_dir, target_date)
     near_ticks, next_ticks, terms = loader.load_and_filter()
     
