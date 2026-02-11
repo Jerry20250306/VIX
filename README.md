@@ -8,8 +8,13 @@
 - **`step0_2_ema_calculation.py`**: 核心程式 - 步驟二與三：EMA 計算與異常值偵測。
 - **`vix_utils.py`**: 共用工具模組，包含資料來源路徑管理。
 - **`reconstruct_order_book.py`**: 訂單簿重建邏輯。
-- **`validation/`**: 驗證與測試腳本目錄（包含所有分析、檢查與測試程式）。
+- **`validation/`**: 驗證與測試腳本目錄。
+  - `verify_full_day.py`: 全天數據完整驗證。
+  - `debug_gamma_diff.py`: 針對 Gamma 值差異的除錯工具。
+  - `verify_prod_format.py`: 驗證輸出格式是否符合 PROD 要求。
 - **`output/`**: 程式執行產出的報表與 CSV 檔案。
+  - `驗證報告_*.md`: 自動產生的驗證報告。
+  - `欄位對應表.md`: 系統欄位與 PROD 欄位的對照說明。
 - **`資料來源/`**: 存放原始行情資料與 PROD 比對資料。
 
 ## 🚀 快速開始

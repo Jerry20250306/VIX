@@ -1,239 +1,387 @@
 """
-VIX Step 0 驗證腳本（優化版）
-使用 pandas merge 取代逐筆比對，大幅提升效能
+VIX Step 0 驗證腳本（優化版 - 產出詳細差異報告）
+使用 pandas merge 取代逐筆比對，並產出詳細差異報表
 """
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import os
 
 pd.set_option('display.width', 400)
 pd.set_option('display.max_columns', None)
 
 def convert_outlier(prod_value):
     """將 PROD 異常值標記轉換為布林值"""
-    if prod_value == 'V':
+    # 統一轉字串處理
+    s = str(prod_value).strip()
+    if s == 'V':
         return True
-    elif prod_value == '-' or prod_value == '' or pd.isna(prod_value):
+    elif s == '-' or s == 'nan' or s == '':
         return None
     else:
         return False
 
 def main():
     print("=" * 80)
-    print("VIX Step 0 驗證（優化版）")
+    print("VIX Step 0 驗證（詳細差異報告版）")
     print(f"執行時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
+    
+    # ========== 設定目標日期 ==========
+    target_date = "20251231"
     
     # ========== 載入資料 ==========
     print("\n>>> 載入資料...")
     
     # PROD 資料
-    near_prod = pd.read_csv(r'資料來源\20251231\NearPROD_20251231.tsv', sep='\t', dtype=str)
-    next_prod = pd.read_csv(r'資料來源\20251231\NextPROD_20251231.tsv', sep='\t', dtype=str)
+    prod_near_path = f'資料來源/{target_date}/NearPROD_{target_date}.tsv'
+    prod_next_path = f'資料來源/{target_date}/NextPROD_{target_date}.tsv'
     
+    try:
+        near_prod = pd.read_csv(prod_near_path, sep='\t', dtype=str)
+        next_prod = pd.read_csv(prod_next_path, sep='\t', dtype=str)
+    except FileNotFoundError as e:
+        print(f"錯誤: 找不到 PROD 檔案 - {e}")
+        return
+
     # 我們的計算結果
-    near_calc = pd.read_csv('step0_full_output_Near_測試前30個.csv')
-    next_calc = pd.read_csv('step0_full_output_Next_測試前30個.csv')
+    calc_near_path = f'output/驗證{target_date}_NearPROD.csv'
+    calc_next_path = f'output/驗證{target_date}_NextPROD.csv'
+    
+    try:
+        near_calc = pd.read_csv(calc_near_path, dtype=str)
+        next_calc = pd.read_csv(calc_next_path, dtype=str)
+    except FileNotFoundError as e:
+        print(f"錯誤: 找不到計算結果檔案 - {e}")
+        return
     
     print(f"    PROD Near: {len(near_prod)} 筆")
     print(f"    PROD Next: {len(next_prod)} 筆")
     print(f"    我們 Near: {len(near_calc)} 筆")
     print(f"    我們 Next: {len(next_calc)} 筆")
     
-    # ========== 驗證 Near Term ==========
+    # ========== 驗證並收集差異 ==========
+    all_diffs = []
+    
     print("\n" + "=" * 80)
     print("驗證 Near Term")
     print("=" * 80)
+    diffs_near = verify_term_detailed(near_prod, near_calc, 'Near', target_date)
+    all_diffs.extend(diffs_near)
     
-    near_results = verify_term_fast(near_prod, near_calc, 'Near')
-    
-    # ========== 驗證 Next Term ==========
     print("\n" + "=" * 80)
     print("驗證 Next Term")
     print("=" * 80)
+    diffs_next = verify_term_detailed(next_prod, next_calc, 'Next', target_date)
+    all_diffs.extend(diffs_next)
     
-    next_results = verify_term_fast(next_prod, next_calc, 'Next')
+    # ========== 輸出差異報告 ==========
+    output_file = f'output/validation_diff_{target_date}.csv'
     
-    # ========== 總結 ==========
-    print("\n" + "=" * 80)
-    print("驗證總結")
-    print("=" * 80)
-    
-    print("\n【Near Term】")
-    print_summary(near_results)
-    
-    print("\n【Next Term】")
-    print_summary(next_results)
+    # 確保 output 資料夾存在
+    if not os.path.exists('output'):
+        os.makedirs('output')
 
-def verify_term_fast(prod_df, calc_df, term_name):
-    """使用 pandas merge 快速驗證（比逐筆比對快 100 倍以上）"""
+    if all_diffs:
+        diff_df = pd.DataFrame(all_diffs)
+        # 調整欄位順序
+        cols = ['Date', 'Time', 'Term', 'Strike', 'CP', 'Column', 'Ours', 'PROD', 'SysID', 'Prev_SysID']
+        # 確保所有需要的欄位都存在
+        for col in cols:
+             if col not in diff_df.columns:
+                 diff_df[col] = ''
+        
+        diff_df = diff_df[cols]
+        
+        diff_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"\n差異報告已儲存至: {output_file}")
+        print(f"總差異筆數: {len(diff_df)}")
+    else:
+        print("\n恭喜！未發現任何差異。")
+        # 產生空檔案以示完成
+        pd.DataFrame(columns=['Date', 'Time', 'Term', 'Strike', 'CP', 'Column', 'Ours', 'PROD', 'SysID', 'Prev_SysID']).to_csv(output_file, index=False, encoding='utf-8-sig')
+        print(f"已建立空報告: {output_file}")
+
+def verify_term_detailed(prod_df, calc_df, term_name, target_date):
+    """執行詳細比對並回傳差異列表"""
     
-    print(f"  使用 pandas merge 進行快速比對...")
+    diff_list = []
     
-    # 1. 準備 PROD 資料（展開為 Call/Put 兩列）
+    print(f"  正在準備 {term_name} 資料...")
+    
+    # 1. 準備 PROD 資料（展開為 Call/Put 兩列）並保留 SysID
     prod_valid = prod_df[prod_df['strike'].notna() & (prod_df['strike'] != '')].copy()
-    prod_valid['time_int'] = prod_valid['time'].astype(int)
-    prod_valid['strike_int'] = prod_valid['strike'].astype(int)
     
-    # 建立 Call 和 Put 的獨立 DataFrame
-    prod_call = prod_valid[['time_int', 'strike_int', 'c.ema', 'c.gamma', 
-                            'c.last_bid', 'c.last_ask', 'c.last_outlier',
-                            'c.min_bid', 'c.min_ask', 'c.min_outlier',
-                            'c.bid', 'c.ask']].copy()
+    # 建立 SysID 對照表 (Time -> SysID)
+    # 假設同一時間點的 snapshot_sysID 是一樣的，取第一個非空的即可
+    time_sysid_map = {}
+    
+    # 檢查欄位名稱 (可能是 snapshot_sysID 或其他)
+    sysid_col = 'snapshot_sysID'
+    if sysid_col not in prod_valid.columns:
+        # 嘗試找看看是否有類似名稱
+        possible_cols = [c for c in prod_valid.columns if 'sysID' in c or 'sysid' in c]
+        if possible_cols:
+             # 優先找 snapshot_sysID
+             if 'snapshot_sysID' in possible_cols:
+                 sysid_col = 'snapshot_sysID'
+             else:
+                 sysid_col = possible_cols[0] # 取第一個
+                 print(f"  警告: 找不到 snapshot_sysID，改用 {sysid_col}")
+        else:
+             print("  警告: 找不到 SysID 相關欄位")
+             sysid_col = None
+
+    if sysid_col:
+        # 依時間排序確保正確性
+        sorted_prod = prod_valid.sort_values('time')
+        # 建立 Time -> SysID 映射
+        valid_sysid = sorted_prod[['time', sysid_col]].drop_duplicates('time')
+        # 移除空值
+        valid_sysid = valid_sysid[valid_sysid[sysid_col].notna() & (valid_sysid[sysid_col] != '')]
+        time_sysid_map = dict(zip(valid_sysid['time'], valid_sysid[sysid_col]))
+    
+    # 取得由時間排序的唯一時間列表，用來找 Prev_SysID
+    sorted_times = sorted(list(time_sysid_map.keys()))
+    
+    def get_sysid_info(time_val):
+        curr_sysid = time_sysid_map.get(time_val, '')
+        
+        # 找前一筆 SysID
+        prev_sysid = ''
+        try:
+            # 這是比較慢的方法，但在錯誤量不大時可接受
+            # 若效能太差可優化
+            if time_val in sorted_times:
+                idx = sorted_times.index(time_val)
+                if idx > 0:
+                    prev_time = sorted_times[idx - 1]
+                    prev_sysid = time_sysid_map.get(prev_time, '')
+        except ValueError:
+            pass
+            
+        return curr_sysid, prev_sysid
+
+    # 展開 PROD Call/Put
+    prod_valid['Time'] = prod_valid['time']
+    prod_valid['Strike'] = prod_valid['strike']
+    
+    # 欄位映射
+    prod_cols_base = ['Time', 'Strike']
+    
+    # Call Columns
+    prod_call_cols = prod_cols_base + [
+        'c.ema', 'c.gamma', 'c.last_outlier', 'c.min_outlier',
+        'c.bid', 'c.ask', 'c.last_bid', 'c.last_ask', 'c.min_bid', 'c.min_ask'
+    ]
+    # 檢查欄位是否存在
+    prod_call_cols = [c for c in prod_call_cols if c in prod_valid.columns]
+    
+    prod_call = prod_valid[prod_call_cols].copy()
     prod_call['CP'] = 'Call'
-    prod_call.columns = ['Time', 'Strike', 'PROD_EMA', 'PROD_Gamma',
-                         'PROD_Last_Bid', 'PROD_Last_Ask', 'PROD_Last_Outlier',
-                         'PROD_Min_Bid', 'PROD_Min_Ask', 'PROD_Min_Outlier',
-                         'PROD_Q_hat_Bid', 'PROD_Q_hat_Ask', 'CP']
     
-    prod_put = prod_valid[['time_int', 'strike_int', 'p.ema', 'p.gamma',
-                           'p.last_bid', 'p.last_ask', 'p.last_outlier',
-                           'p.min_bid', 'p.min_ask', 'p.min_outlier',
-                           'p.bid', 'p.ask']].copy()
+    # 重新命名欄位以便統一處理 (需小心對應)
+    rename_map_c = {
+        'c.ema': 'PROD_EMA', 'c.gamma': 'PROD_Gamma', 
+        'c.last_outlier': 'PROD_Last_Outlier', 'c.min_outlier': 'PROD_Min_Outlier',
+        'c.bid': 'PROD_Q_hat_Bid', 'c.ask': 'PROD_Q_hat_Ask',
+        'c.last_bid': 'PROD_Last_Bid', 'c.last_ask': 'PROD_Last_Ask',
+        'c.min_bid': 'PROD_Min_Bid', 'c.min_ask': 'PROD_Min_Ask'
+    }
+    prod_call = prod_call.rename(columns=rename_map_c)
+
+    # Put Columns
+    prod_put_cols = prod_cols_base + [
+        'p.ema', 'p.gamma', 'p.last_outlier', 'p.min_outlier',
+        'p.bid', 'p.ask', 'p.last_bid', 'p.last_ask', 'p.min_bid', 'p.min_ask'
+    ]
+    # 檢查欄位是否存在
+    prod_put_cols = [c for c in prod_put_cols if c in prod_valid.columns]
+    
+    prod_put = prod_valid[prod_put_cols].copy()
     prod_put['CP'] = 'Put'
-    prod_put.columns = ['Time', 'Strike', 'PROD_EMA', 'PROD_Gamma',
-                        'PROD_Last_Bid', 'PROD_Last_Ask', 'PROD_Last_Outlier',
-                        'PROD_Min_Bid', 'PROD_Min_Ask', 'PROD_Min_Outlier',
-                        'PROD_Q_hat_Bid', 'PROD_Q_hat_Ask', 'CP']
+    
+    rename_map_p = {
+        'p.ema': 'PROD_EMA', 'p.gamma': 'PROD_Gamma', 
+        'p.last_outlier': 'PROD_Last_Outlier', 'p.min_outlier': 'PROD_Min_Outlier',
+        'p.bid': 'PROD_Q_hat_Bid', 'p.ask': 'PROD_Q_hat_Ask',
+        'p.last_bid': 'PROD_Last_Bid', 'p.last_ask': 'PROD_Last_Ask',
+        'p.min_bid': 'PROD_Min_Bid', 'p.min_ask': 'PROD_Min_Ask'
+    }
+    prod_put = prod_put.rename(columns=rename_map_p)
     
     prod_long = pd.concat([prod_call, prod_put], ignore_index=True)
+
+    # 2. 準備我們的計算結果 (Wide Format -> Long Format)
+    print(f"  正在準備我們的計算結果 (轉為 Long Format)...")
     
-    # 2. 準備我們的計算結果
-    calc_subset = calc_df[['Time', 'Strike', 'CP', 'EMA', 
-                           'Q_Last_Valid_Bid', 'Q_Last_Valid_Ask', 'Q_Last_Valid_Is_Outlier', 'Q_Last_Valid_Gamma',
-                           'Q_Min_Valid_Bid', 'Q_Min_Valid_Ask', 'Q_Min_Valid_Is_Outlier',
-                           'Q_hat_Bid', 'Q_hat_Ask', 'Q_hat_Source']].copy()
+    # 標準化 Time/Strike
+    calc_df['Time'] = calc_df['time']
+    calc_df['Strike'] = calc_df['strike']
     
-    # 3. 使用 merge 進行比對（關鍵優化！）
-    merged = pd.merge(prod_long, calc_subset, on=['Time', 'Strike', 'CP'], how='inner')
+    # 準備 Call 部份
+    # 欄位映射: 原始 CSV 欄位 -> 統一欄位名稱
+    # 注意: CSV 欄位名稱需與 step 127 看到的完全一致 (全小寫 c.bid, c.ask...)
     
-    print(f"  成功配對: {len(merged)} 筆")
+    # 定義需要的欄位與重新命名映射 (Call)
+    # 檢查 calc_df 的欄位名稱 (有些是 c.bid, 有些可能是 Q_Last... 取決於產生來源)
+    # 查看 step 127: c.bid, p.bid, c.last_bid, c.last_sysID, c.last_outlier, c.ema, c.gamma
     
-    # 4. 計算各項指標
-    results = {
-        'total_compared': len(merged),
-        'ema_match': 0,
-        'ema_mismatch': [],
-        'q_hat_bid_match': 0,
-        'q_hat_ask_match': 0,
-        'q_hat_mismatch': [],
-        'q_last_bid_match': 0,
-        'q_last_ask_match': 0,
-        'q_last_mismatch': [],
-        'outlier_match': 0,
-        'outlier_mismatch': [],
-        'gamma_match': 0,
-        'gamma_mismatch': [],
+    map_c = {
+        'c.ema': 'EMA',
+        'c.gamma': 'Q_Last_Valid_Gamma', # 假設檢核報告輸出的是最終 Gamma
+        'c.bid': 'Q_hat_Bid',    # PROD 格式的 c.bid 對應我們的 Q_hat
+        'c.ask': 'Q_hat_Ask',
+        'c.last_bid': 'Q_Last_Valid_Bid',
+        'c.last_ask': 'Q_Last_Valid_Ask',
+        'c.last_outlier': 'OURS_Last_Outlier_Str',
+        # 'c.min_outlier': 'OURS_Min_Outlier_Str' # 有些檔案可能沒有 min_outlier
     }
     
-    if len(merged) == 0:
-        return results
+    # 確保欄位存在
+    cols_c = ['Time', 'Strike'] + [c for c in map_c.keys() if c in calc_df.columns]
+    calc_call = calc_df[cols_c].copy()
+    calc_call['CP'] = 'Call'
+    calc_call = calc_call.rename(columns=map_c)
     
-    # ----- EMA 比對（向量化）-----
-    merged['PROD_EMA_float'] = pd.to_numeric(merged['PROD_EMA'], errors='coerce')
-    merged['EMA_float'] = pd.to_numeric(merged['EMA'], errors='coerce')
-    merged['EMA_diff'] = (merged['PROD_EMA_float'] - merged['EMA_float']).abs()
+    # 準備 Put 部份
+    map_p = {
+        'p.ema': 'EMA',
+        'p.gamma': 'Q_Last_Valid_Gamma',
+        'p.bid': 'Q_hat_Bid', 
+        'p.ask': 'Q_hat_Ask',
+        'p.last_bid': 'Q_Last_Valid_Bid',
+        'p.last_ask': 'Q_Last_Valid_Ask',
+        'p.last_outlier': 'OURS_Last_Outlier_Str',
+    }
     
-    ema_valid = merged['PROD_EMA_float'].notna() & merged['EMA_float'].notna()
-    ema_match = (merged['EMA_diff'] < 1e-4) | ~ema_valid
-    results['ema_match'] = ema_match.sum()
+    cols_p = ['Time', 'Strike'] + [c for c in map_p.keys() if c in calc_df.columns]
+    calc_put = calc_df[cols_p].copy()
+    calc_put['CP'] = 'Put'
+    calc_put = calc_put.rename(columns=map_p)
     
-    ema_mismatch_df = merged[ema_valid & (merged['EMA_diff'] >= 1e-4)][['Time', 'Strike', 'CP', 'PROD_EMA_float', 'EMA_float', 'EMA_diff']]
-    results['ema_mismatch'] = ema_mismatch_df.to_dict('records')
+    # 合併 Call 與 Put
+    calc_subset = pd.concat([calc_call, calc_put], ignore_index=True)
     
-    # ----- Q_hat 比對（向量化）-----
-    merged['PROD_Bid_float'] = pd.to_numeric(merged['PROD_Q_hat_Bid'], errors='coerce')
-    merged['PROD_Ask_float'] = pd.to_numeric(merged['PROD_Q_hat_Ask'], errors='coerce')
-    merged['OURS_Bid_float'] = pd.to_numeric(merged['Q_hat_Bid'], errors='coerce')
-    merged['OURS_Ask_float'] = pd.to_numeric(merged['Q_hat_Ask'], errors='coerce')
-    
-    # 比較整數部分（忽略 NaN）
-    bid_match = (merged['PROD_Bid_float'].fillna(-999).astype(int) == merged['OURS_Bid_float'].fillna(-999).astype(int)) | merged['PROD_Bid_float'].isna()
-    ask_match = (merged['PROD_Ask_float'].fillna(-999).astype(int) == merged['OURS_Ask_float'].fillna(-999).astype(int)) | merged['PROD_Ask_float'].isna()
-    
-    results['q_hat_bid_match'] = bid_match.sum()
-    results['q_hat_ask_match'] = ask_match.sum()
-    
-    q_hat_mismatch_df = merged[~bid_match | ~ask_match][['Time', 'Strike', 'CP', 'PROD_Q_hat_Bid', 'PROD_Q_hat_Ask', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_hat_Source']]
-    results['q_hat_mismatch'] = q_hat_mismatch_df.head(100).to_dict('records')  # 限制筆數避免過多
-    
-    # ----- Q_Last 比對（向量化）-----
-    merged['PROD_Last_Bid_float'] = pd.to_numeric(merged['PROD_Last_Bid'], errors='coerce')
-    merged['PROD_Last_Ask_float'] = pd.to_numeric(merged['PROD_Last_Ask'], errors='coerce')
-    merged['OURS_Last_Bid_float'] = pd.to_numeric(merged['Q_Last_Valid_Bid'], errors='coerce')
-    merged['OURS_Last_Ask_float'] = pd.to_numeric(merged['Q_Last_Valid_Ask'], errors='coerce')
-    
-    last_bid_match = (merged['PROD_Last_Bid_float'].fillna(-999).astype(int) == merged['OURS_Last_Bid_float'].fillna(-999).astype(int)) | merged['PROD_Last_Bid_float'].isna()
-    last_ask_match = (merged['PROD_Last_Ask_float'].fillna(-999).astype(int) == merged['OURS_Last_Ask_float'].fillna(-999).astype(int)) | merged['PROD_Last_Ask_float'].isna()
-    
-    results['q_last_bid_match'] = last_bid_match.sum()
-    results['q_last_ask_match'] = last_ask_match.sum()
-    
-    # ----- Outlier 比對（向量化）-----
-    merged['PROD_Outlier_bool'] = merged['PROD_Last_Outlier'].apply(convert_outlier)
-    outlier_valid = merged['PROD_Outlier_bool'].notna()
-    outlier_match = merged['PROD_Outlier_bool'] == merged['Q_Last_Valid_Is_Outlier']
-    
-    results['outlier_match'] = (outlier_valid & outlier_match).sum()
-    outlier_mismatch_df = merged[outlier_valid & ~outlier_match][['Time', 'Strike', 'CP', 'PROD_Last_Outlier', 'Q_Last_Valid_Is_Outlier']]
-    results['outlier_mismatch'] = outlier_mismatch_df.head(100).to_dict('records')
-    
-    # ----- Gamma 比對（向量化）-----
-    merged['PROD_Gamma_float'] = pd.to_numeric(merged['PROD_Gamma'], errors='coerce')
-    merged['OURS_Gamma_float'] = pd.to_numeric(merged['Q_Last_Valid_Gamma'], errors='coerce')
-    
-    gamma_valid = merged['PROD_Gamma_float'].notna() & merged['OURS_Gamma_float'].notna()
-    gamma_diff = (merged['PROD_Gamma_float'] - merged['OURS_Gamma_float']).abs()
-    gamma_match = (gamma_diff < 0.01) | ~gamma_valid
-    
-    results['gamma_match'] = gamma_match.sum()
-    gamma_mismatch_df = merged[gamma_valid & (gamma_diff >= 0.01)][['Time', 'Strike', 'CP', 'PROD_Gamma_float', 'OURS_Gamma_float']]
-    results['gamma_mismatch'] = gamma_mismatch_df.head(100).to_dict('records')
-    
-    return results
+    # 確保所有必要欄位存在 (若來源無該欄位則補 NaN)
+    required_cols = ['EMA', 'Q_Last_Valid_Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_Last_Valid_Bid', 'Q_Last_Valid_Ask', 'OURS_Last_Outlier_Str']
+    for col in required_cols:
+        if col not in calc_subset.columns:
+            calc_subset[col] = np.nan
 
-def print_summary(results):
-    """列印驗證摘要"""
-    total = results['total_compared']
+    # 3. 合併比對
+    # 轉換型別以確保 merge 正確 (統一使用 int，避免前導零問題)
+    # 處理可能非數字的情況 (雖然理論上不應發生)
+    prod_long['Time_int'] = pd.to_numeric(prod_long['Time'], errors='coerce').fillna(0).astype(int)
+    prod_long['Strike_int'] = pd.to_numeric(prod_long['Strike'], errors='coerce').fillna(0).astype(int)
     
-    if total == 0:
-        print("  無資料可比對")
-        return
+    calc_subset['Time_int'] = pd.to_numeric(calc_subset['Time'], errors='coerce').fillna(0).astype(int)
+    calc_subset['Strike_int'] = pd.to_numeric(calc_subset['Strike'], errors='coerce').fillna(0).astype(int)
     
-    print(f"  總比對筆數: {total}")
-    print()
+    print(f"  開始合併資料...")
+    # 使用 int 欄位進行合併
+    merged = pd.merge(prod_long, calc_subset, left_on=['Time_int', 'Strike_int', 'CP'], right_on=['Time_int', 'Strike_int', 'CP'], how='inner')
+    print(f"  成功配對: {len(merged)} 筆")
     
-    # EMA
-    ema_rate = results['ema_match'] / total * 100
-    print(f"  【EMA】正確率: {results['ema_match']}/{total} = {ema_rate:.2f}%")
-    if results['ema_mismatch']:
-        print(f"         不一致: {len(results['ema_mismatch'])} 筆")
+    # 處理 merge 後的欄位後綴 (Time_x, Time_y 等)
+    if 'Time_x' in merged.columns:
+        merged['Time'] = merged['Time_x']
+    elif 'Time' not in merged.columns:
+        # Fallback if Time was used as key (shouldn't happen here)
+        merged['Time'] = merged['Time_int'].astype(str)
+        
+    if 'Strike_x' in merged.columns:
+        merged['Strike'] = merged['Strike_x']
+    elif 'Strike' not in merged.columns:
+        merged['Strike'] = merged['Strike_int'].astype(str)
     
-    # Q_hat
-    bid_rate = results['q_hat_bid_match'] / total * 100
-    ask_rate = results['q_hat_ask_match'] / total * 100
-    print(f"  【Q_hat Bid】正確率: {results['q_hat_bid_match']}/{total} = {bid_rate:.2f}%")
-    print(f"  【Q_hat Ask】正確率: {results['q_hat_ask_match']}/{total} = {ask_rate:.2f}%")
-    if results['q_hat_mismatch']:
-        print(f"         不一致: {len(results['q_hat_mismatch'])} 筆")
+    # 4. 定義比較邏輯
     
-    # Q_Last
-    last_bid_rate = results['q_last_bid_match'] / total * 100
-    last_ask_rate = results['q_last_ask_match'] / total * 100
-    print(f"  【Q_Last Bid】正確率: {results['q_last_bid_match']}/{total} = {last_bid_rate:.2f}%")
-    print(f"  【Q_Last Ask】正確率: {results['q_last_ask_match']}/{total} = {last_ask_rate:.2f}%")
+    # Helper to check float diff
+    def is_diff_float(series_prod, series_ours, tol=1e-4):
+        v_prod = pd.to_numeric(series_prod, errors='coerce')
+        v_ours = pd.to_numeric(series_ours, errors='coerce')
+        
+        # 兩者皆 NaN 視為相同
+        mask_both_nan = v_prod.isna() & v_ours.isna()
+        
+        # 處理一方有值一方無值
+        mask_mismatch_nan = v_prod.isna() ^ v_ours.isna()
+        
+        # 兩者皆有值才比較數值
+        mask_valid = v_prod.notna() & v_ours.notna()
+        diff = (v_prod - v_ours).abs()
+        
+        # 差異條件：(有值且差異過大) 或 (NaN 狀態不一致)
+        return mask_mismatch_nan | (mask_valid & (diff > tol))
+
+    # Helper to check string/int diff
+    def is_diff_str(series_prod, series_ours):
+        # 統一轉字串比較，處理 NaN
+        v_prod = series_prod.fillna('').astype(str).str.strip()
+        v_ours = series_ours.fillna('').astype(str).str.strip()
+        
+        # 處理 .0 結尾的差異 (e.g. "100" vs "100.0")
+        v_prod = v_prod.apply(lambda x: x.replace('.0', '') if x.endswith('.0') else x)
+        v_ours = v_ours.apply(lambda x: x.replace('.0', '') if x.endswith('.0') else x)
+        
+        # 特殊處理 Outlier: "-" 等同於空字串或 NaN
+        v_prod = v_prod.replace('-', '')
+        v_ours = v_ours.replace('-', '')
+        
+        return v_prod != v_ours
+
+    # 定義檢查項目 (Display Name, Prod Col, Ours Col, Method)
+    checks = [
+        ('EMA', 'PROD_EMA', 'EMA', is_diff_float),
+        ('Gamma', 'PROD_Gamma', 'Q_Last_Valid_Gamma', is_diff_float),
+        ('Q_hat_Bid', 'PROD_Q_hat_Bid', 'Q_hat_Bid', is_diff_float),
+        ('Q_hat_Ask', 'PROD_Q_hat_Ask', 'Q_hat_Ask', is_diff_float),
+        ('Q_Last_Bid', 'PROD_Last_Bid', 'Q_Last_Valid_Bid', is_diff_float),
+        ('Q_Last_Ask', 'PROD_Last_Ask', 'Q_Last_Valid_Ask', is_diff_float),
+        ('Last_Outlier', 'PROD_Last_Outlier', 'OURS_Last_Outlier_Str', is_diff_str),
+        # Min Outlier 暫時不比對，因為 PROD 似乎沒有嚴格輸出？先保留
+        # ('Min_Outlier', 'PROD_Min_Outlier', 'OURS_Min_Outlier_Str', is_diff_str),
+    ]
     
-    # Outlier
-    if results['outlier_match'] + len(results['outlier_mismatch']) > 0:
-        outlier_total = results['outlier_match'] + len(results['outlier_mismatch'])
-        outlier_rate = results['outlier_match'] / outlier_total * 100
-        print(f"  【Outlier】正確率: {results['outlier_match']}/{outlier_total} = {outlier_rate:.2f}%")
+    print(f"  開始逐項檢查差異...")
     
-    # Gamma
-    if results['gamma_match'] + len(results['gamma_mismatch']) > 0:
-        gamma_total = results['gamma_match'] + len(results['gamma_mismatch'])
-        gamma_rate = results['gamma_match'] / gamma_total * 100
-        print(f"  【Gamma】正確率: {results['gamma_match']}/{gamma_total} = {gamma_rate:.2f}%")
+    for col_name, prod_col, ours_col, diff_func in checks:
+        if prod_col not in merged.columns or ours_col not in merged.columns:
+            print(f"  警告: 缺少欄位 {prod_col} 或 {ours_col}，跳過比對")
+            continue
+            
+        mask = diff_func(merged[prod_col], merged[ours_col])
+        diff_rows = merged[mask]
+        
+        if not diff_rows.empty:
+            print(f"  發現差異: {col_name} - {len(diff_rows)} 筆")
+            
+            # 批量獲取 SysID 資訊 (優化效能)
+            # 這裡簡單處理，逐筆查詢
+            # 若效能不足，可考慮向量化 map
+            
+            for idx, row in diff_rows.iterrows():
+                time_val = row['Time']
+                curr_sysid, prev_sysid = get_sysid_info(time_val)
+                
+                diff_list.append({
+                    'Date': target_date,
+                    'Time': time_val,
+                    'Term': term_name,
+                    'Strike': row['Strike'],
+                    'CP': row['CP'],
+                    'Column': col_name,
+                    'Ours': row[ours_col],
+                    'PROD': row[prod_col],
+                    'SysID': curr_sysid,
+                    'Prev_SysID': prev_sysid
+                })
+        else:
+            # print(f"  {col_name}: 無差異")
+            pass
+                
+    return diff_list
 
 if __name__ == "__main__":
     main()

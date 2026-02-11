@@ -10,9 +10,9 @@
 | :--- | :---: | :---: | :--- |
 | Smoothing Factor | alpha | 0.95 | EMA 平滑係數 |
 | Base Gamma | γ0 | 1.20 | 基礎寬容度係數 |
-| Bid Improvement Gamma | γ1 | 2.00 | 中價下降時的寬容度係數 |
-| Ask Improvement Gamma | γ2 | 2.50 | 中價上升時的寬容度係數 |
-| Max Spread | lambda | 0.50 | 最大允許價差 (點數) |
+| Bid Improvement Gamma | γ1 | 1.50 | 中價下降時的寬容度係數 |
+| Ask Improvement Gamma | γ2 | 2.00 | 中價上升時的寬容度係數 |
+| Max Spread | lambda | 15.0 | 最大允許價差 (點數) |
 
 ## 3. 資料結構
 
@@ -87,8 +87,8 @@ Q_Last_Valid_t 與 Q_Min_Valid_t 各自獨立計算 gamma，參考對象為上�
 
 | 條件 | gamma 值 |
 |:---|:---:|
-| Q_Last_Valid_Bid_t > 0 且 Q_Last_Valid_Mid_t <= Q_hat_Mid_t-1 | γ1 = 2.0 |
-| Q_Last_Valid_Bid_t > 0 且 Q_Last_Valid_Mid_t > Q_hat_Mid_t-1 | γ2 = 2.5 |
+| Q_Last_Valid_Bid_t > 0 且 Q_Last_Valid_Mid_t <= Q_hat_Mid_t-1 | γ1 = 1.5 |
+| Q_Last_Valid_Bid_t > 0 且 Q_Last_Valid_Mid_t > Q_hat_Mid_t-1 | γ2 = 2.0 |
 | Q_Last_Valid_Bid_t = 0 | γ0 = 1.2 |
 
 #### 2.3 異常判定條件
@@ -97,7 +97,7 @@ Q_Last_Valid_t 與 Q_Min_Valid_t 各自獨立計算 gamma，參考對象為上�
 以 Q_Last_Valid_t 為例 (Q_Min_Valid_t 以此類推)：
 
 1. Spread(Q_Last_Valid_t) <= gamma(Q_Last_Valid_t) * EMA_t (價差符合 EMA 比例)
-2. Spread(Q_Last_Valid_t) < lambda (價差極小，lambda = 0.5)
+2. Spread(Q_Last_Valid_t) < lambda (價差極小，lambda = 15.0)
 3. Q_Last_Valid_Bid_t > Q_hat_Mid_t-1 (買價突破上一期中價)
 4. Q_Last_Valid_Ask_t < Q_hat_Mid_t-1 且 Q_Last_Valid_Bid_t > 0 (賣價跌破上一期中價)
 
@@ -130,3 +130,6 @@ Q_Last_Valid_t 與 Q_Min_Valid_t 各自獨立計算 gamma，參考對象為上�
 1. EMA 公式權重: 已確認 alpha=0.95 作用於當前值 (Spread)，0.05 作用於歷史值 (EMA_t-1)。
 2. Gamma 選擇邏輯: 已依文件範例及 Cboe MSCI VIX 標準確認。
 3. 時間窗口: 採用 15 秒 Rolling Window (回溯 15 秒取最小價差報價)。建議採用 Rolling Window (回溯 15 秒)。
+4. 參數調整 (2026-02-11 更新):
+   - 已確認 PROD 環境實際使用的參數為 γ1=1.5, γ2=2.0, lambda=15.0。
+   - 文件原設定 (γ1=2.0, γ2=2.5, lambda=0.5) 與 PROD 實際行為不符，已修正本文件以符合 PROD。
