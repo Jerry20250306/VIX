@@ -643,6 +643,17 @@ class SnapshotReconstructor:
                             min_seqno = seq
                             min_bid = bids[i]
                             min_ask = asks[i]
+                    
+                    # 【Tie-breaking】若 Q_Last 的 spread 等於 min_spread，優先使用 Q_Last
+                    # 因為 Q_Last 是最新的報價，符合「spread 最小且最新」的定義
+                    if valid_info and not np.isnan(min_spread):
+                        last_spread = valid_info['ask'] - valid_info['bid']
+                        # 用容差比較（避免浮點數誤差）
+                        if abs(last_spread - min_spread) < 1e-9:
+                            min_bid = valid_info['bid']
+                            min_ask = valid_info['ask']
+                            min_spread = last_spread
+                            min_seqno = valid_info['seqno']
                 else:
                     # 沒有新 tick → 沿用 prev 的 Q_Min（若 prev 有效）
                     prev_info = q_last_at_prev.get(key, last_info)
