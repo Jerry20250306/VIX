@@ -655,7 +655,9 @@ class SnapshotReconstructor:
                         s = spreads[i]
                         seq = seqnos[i]
                         # 找 spread 最小，若 spread 相同則選 SeqNo 最大（最新）
-                        if s < min_spread or (s == min_spread and seq > min_seqno):
+                        # 注意：用容差比較 spread（避免浮點數誤差，如 7.8-7.4=0.3999...947 vs 7.7-7.3=0.4000...036）
+                        spread_diff = s - min_spread
+                        if spread_diff < -1e-9 or (abs(spread_diff) <= 1e-9 and seq > min_seqno):
                             min_spread = s
                             min_seqno = seq
                             min_bid = bids[i]
