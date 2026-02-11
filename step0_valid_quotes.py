@@ -944,21 +944,43 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             generate_validity_report(snapshot, term_name, target_time, sys_id, output_path)
     
     # 4. 如果是多時間點處理（全天、範圍或測試），產生整合 HTML 報表
-    if (process_all_times or end_time or max_time_points) and all_results:
-        print("\n>>> 產生整合 HTML 報表...")
-        integrated_output = f"step0_1_integrated_report_{target_date}.html"
-        generate_integrated_html_report(all_results, target_date, integrated_output)
-        print(f"整合報表已儲存至: {integrated_output}")
+    # 先註解掉，批次跑不需要產生 HTML
+    # if (process_all_times or end_time or max_time_points) and all_results:
+    #     print("\n>>> 產生整合 HTML 報表...")
+    #     integrated_output = f"step0_1_integrated_report_{target_date}.html"
+    #     generate_integrated_html_report(all_results, target_date, integrated_output)
+    #     print(f"整合報表已儲存至: {integrated_output}")
 
 if __name__ == "__main__":
-    # 驗證前30個時點
-    main(process_all_times=True)
+    import sys
     
-    # 其他測試模式：
-    # main(max_time_points=1)            # 測試第1個時間點
-    # main(process_all_times=True)       # 全天處理
-    # main(end_time="120015")            # 範圍處理：第一筆到 120015
-    # main(target_time="120015")         # 單一時間點
-    # main()                             # 預設：單一時間點 120015
+    # 預設參數
+    kwargs = {'process_all_times': True}
+    
+    # 簡單參數解析
+    # python step0_valid_quotes.py [TARGET_TIME or ALL] [DATE]
+    if len(sys.argv) > 1:
+        arg1 = sys.argv[1]
+        
+        # 第一個參數：時間點或 ALL
+        if arg1.upper() == 'ALL':
+            kwargs['process_all_times'] = True
+        elif len(arg1) == 6 and arg1.isdigit():
+            kwargs['target_time'] = arg1
+            kwargs['process_all_times'] = False
+        else:
+             # 如果第一個參數是 8 位數字，可能是日期
+             if len(arg1) == 8 and arg1.isdigit():
+                 kwargs['target_date'] = arg1
+                 kwargs['process_all_times'] = True
+            
+        # 第二個參數：日期 (YYYYMMDD)
+        if len(sys.argv) > 2:
+            arg2 = sys.argv[2]
+            if len(arg2) == 8 and arg2.isdigit():
+                print(f"[Main] 指定日期: {arg2}")
+                kwargs['target_date'] = arg2
+
+    main(**kwargs)
 
 

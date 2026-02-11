@@ -660,8 +660,8 @@ def main(target_date=None):
     next_output = f"output/驗證{target_date}_NextPROD.csv"
     
     print(f"\n>>> 轉換並儲存 PROD 格式結果...")
-    save_prod_format(near_with_ema, near_output, snapshot_sysid_col='Snapshot_SysID')
-    save_prod_format(next_with_ema, next_output, snapshot_sysid_col='Snapshot_SysID')
+    save_prod_format(near_with_ema, near_output, snapshot_sysid_col='Snapshot_SysID', date_val=final_date)
+    save_prod_format(next_with_ema, next_output, snapshot_sysid_col='Snapshot_SysID', date_val=final_date)
     
     # 列印統計資訊
     print(f"\n" + "=" * 60)
@@ -679,6 +679,19 @@ def main(target_date=None):
     print(f"  Q_Min_Valid 異常值:  {next_with_ema['Q_Min_Valid_Is_Outlier'].sum()} / {len(next_with_ema)}")
     print(f"  Q_hat 來源分布:")
     print(next_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
+    
+    # 清理中間檔案 (Step 1 CSV)
+    import os
+    try:
+        print(f"\n>>> 清理中間檔案...")
+        if os.path.exists(near_csv):
+            os.remove(near_csv)
+            print(f"  已刪除: {near_csv}")
+        if os.path.exists(next_csv):
+            os.remove(next_csv)
+            print(f"  已刪除: {next_csv}")
+    except Exception as e:
+        print(f"  清理失敗: {e}")
 
 
 # ==============================================================================
@@ -861,13 +874,52 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
         how='outer'
     )
     
+    # 新增 date 欄位
+    # 我們假設 df 裡面的 Time 是 HHMMSS，而日期是外部傳入的 target_date
+    # 但這裡 convert_to_prod_format 沒收到 target_date 參數
+    # 我們可以嘗試從全域變數或參數傳遞取得，或者先留空
+    # 更好的方式是修改 convert_to_prod_format 的簽名接受 date 參數
+    # 但為了最小改動，我們看能不能從 sys.argv 拿，或者依賴 caller 處理
+    # 這裡我們暫時放空字串，然後在 save_prod_format 補上
+    # 或者我們可以解析 time 欄位如果它包含日期的話？目前的 time 只有 HHMMSS
+    
+    # 既然 User 希望在第一欄新增資料日期，我們修改 convert_to_prod_format 簽名
+    # 但為了相容性，我們先回傳 output_df，在 save_prod_format 處理 date 欄位
+    
     # 排序
     output_df = output_df.sort_values(['time', 'strike']).reset_index(drop=True)
     
-    return output_df
+    # 定義 PROD 欄位順序 (只包含我們有的)
+    # 參考: ['date', 'time', 'strike', 'c.bid', 'c.ask', 'p.bid', 'p.ask', 
+    #        'c.source', 'p.source', 'c.sysID', 'p.sysID', 
+    #        'c.last_bid', 'c.last_ask', 'c.last_sysID', 'c.last_outlier', 
+    #        'p.last_bid', 'p.last_ask', 'p.last_sysID', 'p.last_outlier', 
+    #        'c.min_bid', 'c.min_ask', 'c.min_sysID', 'c.min_outlier', 
+    #        'p.min_bid', 'p.min_ask', 'p.min_sysID', 'p.min_outlier', 
+    #        'c.ema', 'p.ema', 'c.gamma', 'p.gamma', 'snapshot_sysID']
+    
+    prod_order = [
+         'time', 'strike',
+         'c.bid', 'c.ask', 
+         'p.bid', 'p.ask',
+         'c.source', 'p.source', # 對應 c.type, p.type
+         # c.sysID, p.sysID (missing)
+         'c.last_bid', 'c.last_ask', 'c.last_sysID', 'c.last_outlier',
+         'p.last_bid', 'p.last_ask', 'p.last_sysID', 'p.last_outlier',
+         'c.min_bid', 'c.min_ask', 'c.min_sysID', 'c.min_outlier',
+         'p.min_bid', 'p.min_ask', 'p.min_sysID', 'p.min_outlier',
+         'c.ema', 'p.ema',
+         'c.gamma', 'p.gamma',
+         'snapshot_sysID'
+    ]
+    
+    # 過濾出存在的欄位
+    final_cols = [c for c in prod_order if c in output_df.columns]
+    
+    return output_df[final_cols]
 
 
-def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID'):
+def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID', date_val=None):
     """
     將計算結果以 PROD 格式儲存
     
@@ -875,8 +927,14 @@ def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID'):
         df: 計算結果 DataFrame
         output_path: 輸出路徑
         snapshot_sysid_col: snapshot_sysID 欄位名稱
+        date_val: 日期欄位的值 (YYYYMMDD)
     """
     prod_df = convert_to_prod_format(df, snapshot_sysid_col)
+    
+    # 如果有提供日期，加入 date 欄位並放在第一欄
+    if date_val:
+        prod_df.insert(0, 'date', date_val)
+        
     prod_df.to_csv(output_path, index=False, encoding='utf-8-sig')
     print(f"PROD 格式已儲存: {output_path}")
     return prod_df
