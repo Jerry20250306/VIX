@@ -613,8 +613,24 @@ class SnapshotReconstructor:
                     last_valid_prod_id = np.nan
                 
                 # ========== Q_Min（有效報價版）==========
+                # Q_Min 定義：t時點前15秒內買賣價差最小且最接近t時點(latest)報價
+                # 
+                # 重要概念：
+                # 1. SeqNo 是跨商品的全局序號（Near/Next, 所有 Strike, Call/Put 共用）
+                # 2. 處理單一商品時，該商品的 SeqNo 會不連續（中間穿插其他商品的 ticks）
+                # 3. q_last_at_prev = 前一個時間點處理完後，該商品的最新報價
+                #    = 小於當前區間起始 SeqNo 的最後一個報價（該商品的區間起始狀態）
+                # 
+                # Q_Min 候選來源：
+                # - q_last_at_prev（區間起始時該商品的報價狀態）
+                # - 區間內該商品的所有新 ticks（只考慮有效報價）
+                # 
+                # 選擇規則：
+                # 1. 從候選中選 spread 最小的
+                # 2. 若 spread 相同，選 SeqNo 最大的（最新）
+                # 3. 若 Q_Last 的 spread 等於 min_spread，優先使用 Q_Last（tie-breaking）
                 if key in products_with_new_ticks:
-                    # 收集候選 ticks（prev + 區間新增），只保留有效的
+                    # 收集候選 ticks（q_last_at_prev + 區間新增），只保留有效的
                     prev_info = q_last_at_prev.get(key)
                     
                     # 初始化為 prev（若 prev 有效）
@@ -638,6 +654,7 @@ class SnapshotReconstructor:
                             continue  # 跳過無效 tick
                         s = spreads[i]
                         seq = seqnos[i]
+                        # 找 spread 最小，若 spread 相同則選 SeqNo 最大（最新）
                         if s < min_spread or (s == min_spread and seq > min_seqno):
                             min_spread = s
                             min_seqno = seq
