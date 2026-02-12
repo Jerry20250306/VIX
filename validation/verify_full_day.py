@@ -22,13 +22,19 @@ def convert_outlier(prod_value):
         return False
 
 def main():
+    import sys
     print("=" * 80)
     print("VIX Step 0 驗證（詳細差異報告版）")
     print(f"執行時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
     
     # ========== 設定目標日期 ==========
-    target_date = "20251231"
+    if len(sys.argv) > 1:
+        target_date = sys.argv[1]
+    else:
+        target_date = "20251231"
+    
+    print(f"目標日期: {target_date}")
     
     # ========== 載入資料 ==========
     print("\n>>> 載入資料...")

@@ -33,31 +33,32 @@ def run_command(cmd, desc):
         print(f"[Error] {desc} 失敗 (Exit Code: {e.returncode})")
         return False
 
-def verify_date(date_str, term):
-    """呼叫 quick_verify_numeric.py 進行驗證，並解析輸出判斷是否 100% 一致"""
-    cmd = f"python validation/quick_verify_numeric.py {term} {date_str}"
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 驗證 {term} Term ({date_str})...")
+def verify_date_full(date_str):
+    """呼叫 verify_full_day.py 進行全天驗證"""
+    # verify_full_day.py 一次驗證 Near 和 Next
+    cmd = f"python validation/verify_full_day.py {date_str}"
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 驗證 {date_str} (Near & Next)...")
     
     try:
-        # 這裡我們需要 capture output 來判斷 "全部數值欄位驗證通過"
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         output = result.stdout
         
         # 檢查關鍵字
-        if "全部數值欄位驗證通過" in output:
-            print(f"[PASS] {term} Term 驗證通過 (100% 一致)")
-            return True, output
+        if "恭喜！未發現任何差異" in output:
+            print(f"[PASS] {date_str} 全天驗證通過 (100% 一致)")
+            return True, True, output # success, near_ok, next_ok
         else:
-            print(f"[FAIL] {term} Term 驗證失敗！")
-            # 印出失敗的部分 (過濾 [X] 開頭的行)
+            print(f"[FAIL] {date_str} 驗證失敗/有差異")
+            # 嘗試列出差異摘要
+            summary_lines = []
             for line in output.splitlines():
-                if "[X]" in line:
-                    print(f"   {line}")
-            return False, output
+                if "發現差異" in line or "錯誤" in line:
+                    print(f"   {line.strip()}")
+            return False, False, output
             
     except Exception as e:
         print(f"[Error] 驗證腳本執行錯誤: {e}")
-        return False, str(e)
+        return False, False, str(e)
 
 def main():
     parser = argparse.ArgumentParser(description="VIX 批次計算與驗證")
@@ -102,26 +103,24 @@ def main():
             if not run_command(cmd_step2, f"Step 2: EMA 計算 ({date_str})"):
                 success = False
                 
-        # 3. 驗證 (Near & Next)
-        near_ok = False
-        next_ok = False
+        # 3. 驗證 (Near & Next 一併驗證)
+        verify_success = False
         if success:
-            near_ok, _ = verify_date(date_str, "Near")
-            next_ok, _ = verify_date(date_str, "Next")
+            verify_success, _, _ = verify_date_full(date_str)
             
-            if not (near_ok and next_ok):
+            if not verify_success:
                 success = False
         
         # 紀錄結果
-        status = "Passed" if success else "Failed"
-        if not success and (not near_ok or not next_ok):
-            status = "Mismatch" # 執行成功但驗證失敗
-            
+        status = "Passed" if verify_success else "Failed"
+        if not success and not verify_success:
+            status = "Mismatch" # 執行成功但驗證失敗或執行失敗
+        
         summary.append({
             "date": date_str, 
             "status": status,
-            "near": "OK" if near_ok else "Fail",
-            "next": "OK" if next_ok else "Fail"
+            "near": "OK" if verify_success else "Check",
+            "next": "OK" if verify_success else "Check"
         })
         
         if not success and args.stop_on_error:

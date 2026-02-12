@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIX 驗證結果瀏覽器</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>VIX 驗證結果瀏覽器</h1>
+            <div class="controls">
+                <label for="date-selector">選擇日期：</label>
+                <select id="date-selector">
+                    <option value="">載入中...</option>
+                </select>
+                <span id="loading-indicator" style="display:none; margin-left:10px;">讀取中...</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- 摘要區塊 (未來實作) -->
+            <section id="summary-panel" class="panel hidden">
+                <h2>驗證摘要</h2>
+                <div id="summary-content"></div>
+            </section>
+
+            <!-- 差異列表 (未來實作) -->
+            <section id="diff-panel" class="panel hidden">
+                <h2>差異列表</h2>
+                <div class="table-container">
+                    <table id="diff-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>時間</th>
+                                <th>Term</th>
+                                <th>履約價</th>
+                                <th>CP</th>
+                                <th>欄位</th>
+                                <th>Ours</th>
+                                <th>PROD</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Javascript 動態填入 -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 明細區塊 (未來實作) -->
+            <section id="detail-panel" class="panel hidden">
+                <h2>詳細資料比對</h2>
+                <div id="compare-container"></div>
+                
+                <h3>原始 Tick 資料追踪</h3>
+                <div class="ticks-wrapper">
+                    <div class="tick-box">
+                        <h4>當前區間 (SysID: <span id="curr-sysid-range"></span>)</h4>
+                        <div id="curr-ticks"></div>
+                    </div>
+                    <div class="tick-box">
+                        <h4>前一區間 (SysID: <span id="prev-sysid-range"></span>)</h4>
+                        <div id="prev-ticks"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

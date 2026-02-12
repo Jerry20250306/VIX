@@ -353,10 +353,6 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
         return False, "Q_hat_Mid_t-1 為 null（第一筆資料）→ 視為非異常值", False, False, False, False
     
     # ===== 例外情況 3：EMA_t-1 為 null =====
-    # 依據 Spec：若前一期的 EMA 為 null（例如第一筆資料或連續無報價），則直接視為非異常值
-    # 注意：這裡 ema_t 實際上是計算當期時使用的 EMA，但在第一筆資料時 EMA 會是 null
-    # 因為 EMA 的計算邏輯是：先用 prev_ema 算 Gamma/Outlier，再更新 EMA
-    # 所以當 ema_t 為 null 時，代表前一期沒有有效 EMA，等同於 EMA_t-1 為 null
     if not is_valid_value(ema_t):
         return False, "EMA_t-1 為 null → 視為非異常值", False, False, False, False
     
@@ -370,12 +366,10 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
         threshold_1 = gamma * ema_t_val
         if spread_val <= threshold_1:
             cond_1 = True
-            return False, f"Condition 1：Spread({spread_val}) <= γ({gamma}) × EMA_t({ema_t_val:.4f}) = {threshold_1:.4f}", cond_1, cond_2, cond_3, cond_4
     
     # ===== Condition 2：Spread <= λ =====
     if spread_val <= LAMBDA:
         cond_2 = True
-        return False, f"Condition 2：Spread({spread_val}) <= λ({LAMBDA})", cond_1, cond_2, cond_3, cond_4
     
     # ===== Condition 3 & 4 需要 Bid 和 Ask =====
     if is_valid_value(bid):
@@ -384,14 +378,27 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
         # ----- Condition 3：Bid_t > Q_hat_Mid_t-1（買價突破上一期中價）-----
         if bid_val > prev_mid_val:
             cond_3 = True
-            return False, f"Condition 3：Bid({bid_val}) > Q_hat_Mid_t-1({prev_mid_val})", cond_1, cond_2, cond_3, cond_4
         
         # ----- Condition 4：Ask_t < Q_hat_Mid_t-1 且 Bid_t > 0（賣價跌破上一期中價）-----
         if is_valid_value(ask):
             ask_val = float(ask)
             if ask_val < prev_mid_val and bid_val > 0:
                 cond_4 = True
-                return False, f"Condition 4：Ask({ask_val}) < Q_hat_Mid_t-1({prev_mid_val}) 且 Bid({bid_val}) > 0", cond_1, cond_2, cond_3, cond_4
+    
+    # ===== 統一判定：任一條件通過即為非異常值 =====
+    if cond_1 or cond_2 or cond_3 or cond_4:
+        # 組合所有通過的條件編號
+        passed = []
+        if cond_1:
+            passed.append("1")
+        if cond_2:
+            passed.append("2")
+        if cond_3:
+            passed.append("3")
+        if cond_4:
+            passed.append("4")
+        reason = f"Condition {','.join(passed)} 通過 → 非異常值"
+        return False, reason, cond_1, cond_2, cond_3, cond_4
     
     # ===== 不符合任一條件 → 判定為異常值 =====
     return True, "不符合任一非異常值條件 → 判定為異常值", cond_1, cond_2, cond_3, cond_4
@@ -930,6 +937,20 @@ def save_prod_format(df, output_path, snapshot_sysid_col='Snapshot_SysID', date_
         date_val: 日期欄位的值 (YYYYMMDD)
     """
     prod_df = convert_to_prod_format(df, snapshot_sysid_col)
+    
+    # 將所有數值欄位的 null/NaN 填為 0（Q_hat、Q_Last、Q_Min、EMA）
+    # 注意：計算過程中空值可能以字串 "null" 或 Python NaN 兩種形式存在
+    fill_zero_cols = [
+        'c.bid', 'c.ask', 'p.bid', 'p.ask',           # Q_hat
+        'c.last_bid', 'c.last_ask',                     # Q_Last_Valid
+        'p.last_bid', 'p.last_ask',                     # Q_Last_Valid
+        'c.min_bid', 'c.min_ask',                       # Q_Min_Valid
+        'p.min_bid', 'p.min_ask',                       # Q_Min_Valid
+        'c.ema', 'p.ema',                               # EMA
+    ]
+    for col in fill_zero_cols:
+        if col in prod_df.columns:
+            prod_df[col] = prod_df[col].replace({'null': 0, '': 0}).fillna(0)
     
     # 如果有提供日期，加入 date 欄位並放在第一欄
     if date_val:
