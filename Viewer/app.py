@@ -46,7 +46,7 @@ def get_diff(date):
         per_page = min(per_page, 500)
         
         # 取得摘要（快速，不分頁）
-        summary_data = diff_loader.get_summary(date)
+        summary_data = diff_loader.get_summary(date, prod_loader=prod_loader)
         
         # 取得分頁資料
         page_data = diff_loader.get_page(date, page, per_page)

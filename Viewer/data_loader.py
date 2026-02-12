@@ -41,21 +41,58 @@ class DiffLoader:
         self._cache[date] = df
         return df
     
-    def get_summary(self, date):
-        """取得摘要統計（不需分頁，快速計算）"""
+    # 驗證腳本 verify_full_day.py 中定義的所有比對欄位
+    ALL_COMPARED_COLUMNS = ['EMA', 'Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_Last_Bid', 'Q_Last_Ask', 'Last_Outlier']
+    
+    def get_summary(self, date, prod_loader=None):
+        """取得摘要統計，包含有差異和無差異的欄位"""
         df = self._load_df(date)
         
-        summary = {}
+        # 有差異的統計 (Term → {Column: count})
+        diff_summary = {}
         if "Term" in df.columns:
             for term in df["Term"].unique():
                 if term is None:
                     continue
                 term_df = df[df["Term"] == term]
-                summary[term] = term_df["Column"].value_counts().to_dict()
+                diff_summary[term] = term_df["Column"].value_counts().to_dict()
+        
+        # 計算每個 Term 的總比對筆數（從 PROD CSV）
+        total_per_term = {}
+        if prod_loader:
+            for term in ["Near", "Next"]:
+                path = os.path.join(self.output_dir, f"驗證{date}_{term}PROD.csv")
+                if os.path.exists(path):
+                    try:
+                        # 只讀行數，不需要全部欄位
+                        row_count = sum(1 for _ in open(path, encoding="utf-8-sig")) - 1  # 扣掉 header
+                        # 每行 = 1 個 strike，Call + Put 各算一筆
+                        total_per_term[term] = row_count * 2
+                    except:
+                        total_per_term[term] = 0
+        
+        # 組合無差異摘要
+        no_diff_summary = {}
+        for term in diff_summary.keys():
+            diff_cols = diff_summary.get(term, {})
+            no_diff = {}
+            total = total_per_term.get(term, 0)
+            for col in self.ALL_COMPARED_COLUMNS:
+                if col not in diff_cols:
+                    no_diff[col] = total  # 該欄位完全沒差異
+            no_diff_summary[term] = no_diff
+        
+        # 若有 Term 在 PROD 裡但 diff 裡沒有（表示完全沒差異）
+        for term, total in total_per_term.items():
+            if term not in diff_summary:
+                no_diff_summary[term] = {col: total for col in self.ALL_COMPARED_COLUMNS}
         
         return {
             "total_diffs": len(df),
-            "summary": summary
+            "summary": diff_summary,
+            "no_diff_summary": no_diff_summary,
+            "total_per_term": total_per_term,
+            "all_columns": self.ALL_COMPARED_COLUMNS
         }
     
     def get_page(self, date, page=1, per_page=100):

@@ -50,7 +50,7 @@ async function loadDiffData(date, page) {
 
         const data = await res.json();
 
-        renderSummary(data.summary, data.total_diffs);
+        renderSummary(data);
         renderDiffTable(data.rows);
         renderPagination(data.page, data.total_pages, data.total);
 
@@ -66,22 +66,55 @@ async function loadDiffData(date, page) {
     }
 }
 
-function renderSummary(summary, total) {
+function renderSummary(data) {
     const container = document.getElementById("summary-content");
-    let html = `<p>總差異筆數: <strong>${total.toLocaleString()}</strong></p>`;
+    const { summary, no_diff_summary, total_per_term, all_columns, total_diffs } = data;
+
+    let html = `<p>總差異筆數: <strong style="color: ${total_diffs > 0 ? '#d9534f' : '#5cb85c'}">${total_diffs.toLocaleString()}</strong></p>`;
+
+    // 收集所有 Term（合併 diff 和 no-diff 的 keys）
+    const allTerms = new Set([...Object.keys(summary || {}), ...Object.keys(no_diff_summary || {})]);
 
     html += '<div style="display:flex; gap:20px; flex-wrap:wrap;">';
 
-    for (const [term, counts] of Object.entries(summary)) {
-        html += `<div class="summary-box">
-            <h3>${term} Term</h3>
-            <ul>`;
+    for (const term of allTerms) {
+        const diffCols = summary[term] || {};
+        const noDiffCols = no_diff_summary[term] || {};
+        const totalRows = (total_per_term || {})[term] || 0;
 
-        for (const [col, count] of Object.entries(counts)) {
-            html += `<li>${col}: ${count}</li>`;
+        html += `<div class="summary-box" style="min-width:300px;">
+            <h3>${term} Term <span style="font-size:12px; color:#888;">(共 ${totalRows.toLocaleString()} 筆比對)</span></h3>
+            <table style="width:100%; font-size:13px;">
+                <thead>
+                    <tr>
+                        <th>欄位</th>
+                        <th>狀態</th>
+                        <th>差異筆數</th>
+                        <th>一致筆數</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        // 用 all_columns 排序顯示所有欄位
+        const cols = all_columns || Object.keys({ ...diffCols, ...noDiffCols });
+
+        for (const col of cols) {
+            const diffCount = diffCols[col] || 0;
+            const noDiffCount = diffCount > 0 ? (totalRows - diffCount) : (noDiffCols[col] || totalRows);
+            const isPassing = diffCount === 0;
+
+            const statusIcon = isPassing ? '✅' : '❌';
+            const rowStyle = isPassing ? '' : 'background-color: #fff5f5;';
+
+            html += `<tr style="${rowStyle}">
+                <td><strong>${col}</strong></td>
+                <td style="text-align:center">${statusIcon}</td>
+                <td style="text-align:right; color:${diffCount > 0 ? '#d9534f' : '#ccc'};">${diffCount > 0 ? diffCount.toLocaleString() : '-'}</td>
+                <td style="text-align:right; color:#5cb85c;">${noDiffCount.toLocaleString()}</td>
+            </tr>`;
         }
 
-        html += `</ul></div>`;
+        html += `</tbody></table></div>`;
     }
 
     html += '</div>';
