@@ -77,7 +77,12 @@ class TickLoader:
             month_code = PUT_MONTH_CODES[month]
         return f"TXO{strike}{month_code}{year_digit}"
 
-    def query(self, date, term, strike, cp, sys_id, prev_sys_id=None):
+    def query(self, date, term, strike, cp, sys_id, prev_sys_id=None,
+              curr_start=None, curr_end=None, prev_start=None, prev_end=None):
+        """查詢 Tick 資料。
+        若提供 curr_start/curr_end/prev_start/prev_end，則以手動指定範圍篩選；
+        否則使用預設邏輯 (prev_sys_id < seqno <= sys_id)。
+        """
         try:
             tick_dir = self._find_tick_dir(date)
             # 確保找到正確的 csv 目錄 (有的在 temp)
@@ -109,6 +114,24 @@ class TickLoader:
             sys_id = int(float(sys_id)) if sys_id else 0
             prev_sys_id = int(float(prev_sys_id)) if prev_sys_id else None
             
+            # 手動指定範圍 (覆蓋預設邏輯)
+            if curr_start is not None:
+                curr_start = int(float(curr_start))
+            if curr_end is not None:
+                curr_end = int(float(curr_end))
+            if prev_start is not None:
+                prev_start = int(float(prev_start))
+            if prev_end is not None:
+                prev_end = int(float(prev_end))
+            
+            # 決定最終的篩選範圍
+            # 當前區間
+            final_curr_start = curr_start if curr_start is not None else (prev_sys_id if prev_sys_id else 0)
+            final_curr_end = curr_end if curr_end is not None else sys_id
+            # 前一區間
+            final_prev_start = prev_start if prev_start is not None else ((prev_sys_id - 500) if prev_sys_id else None)
+            final_prev_end = prev_end if prev_end is not None else prev_sys_id
+            
             # 讀取 CSV (TSV)
             chunk_iter = pd.read_csv(tick_file, sep="\t", chunksize=100000, encoding="utf-8", engine="c")
             
@@ -119,7 +142,7 @@ class TickLoader:
                 id_col = next((c for c in chunk.columns if 'prod_id' in c), None)
                 seq_col = next((c for c in chunk.columns if 'seqno' in c), None)
                 time_col = next((c for c in chunk.columns if 'time' in c), None)
-                bid_col = next((c for c in chunk.columns if 'buy_price' in c or 'best_bid' in c), None) # 根據 spec 是 best_buy_price1
+                bid_col = next((c for c in chunk.columns if 'buy_price' in c or 'best_bid' in c), None)
                 ask_col = next((c for c in chunk.columns if 'sell_price' in c or 'best_ask' in c), None)
                 
                 if not (id_col and seq_col): continue
@@ -132,19 +155,15 @@ class TickLoader:
                 # 篩選 seqno
                 matched[seq_col] = pd.to_numeric(matched[seq_col], errors='coerce')
                 
-                # Current Interval
-                if prev_sys_id:
-                    curr_mask = (matched[seq_col] > prev_sys_id) & (matched[seq_col] <= sys_id)
-                else:
-                    curr_mask = (matched[seq_col] <= sys_id)
-                
+                # Current Interval: (final_curr_start, final_curr_end]
+                curr_mask = (matched[seq_col] > final_curr_start) & (matched[seq_col] <= final_curr_end)
                 if curr_mask.any():
                     for _, row in matched[curr_mask].iterrows():
                         current_ticks.append(self._format_row(row, time_col, bid_col, ask_col, seq_col))
                 
-                # Prev Interval (往前 500 seqno)
-                if prev_sys_id:
-                    prev_mask = (matched[seq_col] > (prev_sys_id - 500)) & (matched[seq_col] <= prev_sys_id)
+                # Prev Interval: (final_prev_start, final_prev_end]
+                if final_prev_start is not None and final_prev_end is not None:
+                    prev_mask = (matched[seq_col] > final_prev_start) & (matched[seq_col] <= final_prev_end)
                     if prev_mask.any():
                         for _, row in matched[prev_mask].iterrows():
                             prev_ticks.append(self._format_row(row, time_col, bid_col, ask_col, seq_col))
@@ -152,11 +171,12 @@ class TickLoader:
             return {
                 "prod_id": prod_id,
                 "current_interval": {
-                    "sys_id_range": [prev_sys_id, sys_id],
+                    "sys_id_range": [final_curr_start, final_curr_end],
                     "ticks": sorted(current_ticks, key=lambda x: x["seqno"]),
                     "count": len(current_ticks)
                 },
                 "prev_interval": {
+                    "sys_id_range": [final_prev_start, final_prev_end],
                     "ticks": sorted(prev_ticks, key=lambda x: x["seqno"]),
                     "count": len(prev_ticks)
                 }

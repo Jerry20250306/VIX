@@ -333,28 +333,34 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
         Q_hat_Mid_t_minus_1: 前一時點篩選後最終報價的中價
         
     Returns:
-        tuple: (is_outlier, reason, cond_1, cond_2, cond_3, cond_4)
+        tuple: (is_outlier, reason, cond_1, cond_2, cond_3, cond_4, cond_5, cond_6)
             - is_outlier: True=異常值, False=非異常值
             - reason: 判定原因說明
             - cond_1~4: 各條件是否通過
+            - cond_5: 例外情況 2（第一筆資料/Q_hat_Mid_t-1 為 null）
+            - cond_6: 例外情況 3（EMA 為 null）
     """
     # 初始化所有條件狀態為 False
     cond_1 = False
     cond_2 = False
     cond_3 = False
     cond_4 = False
+    cond_5 = False
+    cond_6 = False
     
     # ===== 例外情況 1：報價本身為 null =====
-    if not is_valid_value(spread):
-        return False, "報價為 null → 視為非異常值", False, False, False, False
+    # [已註記] 讓報價為 null 的情況繼續往下判斷，以便命中 cond_5/cond_6
+    # if not is_valid_value(spread):
+    #     return False, "報價為 null → 視為非異常值", False, False, False, False, False, False
     
-    # ===== 例外情況 2：Q_hat_Mid_t-1 為 null（第一筆資料）=====
-    if not is_valid_value(Q_hat_Mid_t_minus_1):
-        return False, "Q_hat_Mid_t-1 為 null（第一筆資料）→ 視為非異常值", False, False, False, False
-    
-    # ===== 例外情況 3：EMA_t-1 為 null =====
+    # ===== 例外情況 3：EMA_t-1 為 null → 填入 6 =====
+    # [修正順序] 先檢查 EMA，因為 PROD 優先報告 EMA 為 null (6)
     if not is_valid_value(ema_t):
-        return False, "EMA_t-1 為 null → 視為非異常值", False, False, False, False
+        return False, "EMA_t-1 為 null → 視為非異常值", False, False, False, False, False, True
+        
+    # ===== 例外情況 2：Q_hat_Mid_t-1 為 null（第一筆資料）→ 填入 5 =====
+    if not is_valid_value(Q_hat_Mid_t_minus_1):
+        return False, "Q_hat_Mid_t-1 為 null（第一筆資料）→ 視為非異常值", False, False, False, False, True, False
     
     # 轉換為數值進行比較
     spread_val = float(spread)
@@ -398,10 +404,10 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
         if cond_4:
             passed.append("4")
         reason = f"Condition {','.join(passed)} 通過 → 非異常值"
-        return False, reason, cond_1, cond_2, cond_3, cond_4
+        return False, reason, cond_1, cond_2, cond_3, cond_4, cond_5, cond_6
     
     # ===== 不符合任一條件 → 判定為異常值 =====
-    return True, "不符合任一非異常值條件 → 判定為異常值", cond_1, cond_2, cond_3, cond_4
+    return True, "不符合任一非異常值條件 → 判定為異常值", cond_1, cond_2, cond_3, cond_4, cond_5, cond_6
 
 
 # ==============================================================================
@@ -455,6 +461,8 @@ def add_ema_and_outlier_detection(df, term_name):
     result_df['Q_Last_Valid_Cond_2'] = None          # Condition 2 是否通過
     result_df['Q_Last_Valid_Cond_3'] = None          # Condition 3 是否通過
     result_df['Q_Last_Valid_Cond_4'] = None          # Condition 4 是否通過
+    result_df['Q_Last_Valid_Cond_5'] = None          # 例外 2：第一筆資料
+    result_df['Q_Last_Valid_Cond_6'] = None          # 例外 3：EMA 為 null
     
     # Q_Min_Valid 異常值判定結果
     result_df['Q_Min_Valid_Is_Outlier'] = None       # 是否為異常值
@@ -463,6 +471,8 @@ def add_ema_and_outlier_detection(df, term_name):
     result_df['Q_Min_Valid_Cond_2'] = None           # Condition 2 是否通過
     result_df['Q_Min_Valid_Cond_3'] = None           # Condition 3 是否通過
     result_df['Q_Min_Valid_Cond_4'] = None           # Condition 4 是否通過
+    result_df['Q_Min_Valid_Cond_5'] = None           # 例外 2：第一筆資料
+    result_df['Q_Min_Valid_Cond_6'] = None           # 例外 3：EMA 為 null
     
     # ===== 初始化步驟三輸出欄位 =====
     result_df['Q_hat_Bid'] = None     # 最終篩選報價的買價
@@ -535,7 +545,7 @@ def add_ema_and_outlier_detection(df, term_name):
             # ===== 步驟 2.3：判定異常值 =====
             
             # 判定 Q_Last_Valid 是否為異常值
-            is_outlier_last, reason_last, cond_1_last, cond_2_last, cond_3_last, cond_4_last = check_outlier(
+            is_outlier_last, reason_last, cond_1_last, cond_2_last, cond_3_last, cond_4_last, cond_5_last, cond_6_last = check_outlier(
                 Q_Last_Valid_Spread, Q_Last_Valid_Bid, Q_Last_Valid_Ask,
                 current_ema, gamma_last, Q_hat_Mid_prev
             )
@@ -545,9 +555,11 @@ def add_ema_and_outlier_detection(df, term_name):
             result_df.at[idx, 'Q_Last_Valid_Cond_2'] = cond_2_last
             result_df.at[idx, 'Q_Last_Valid_Cond_3'] = cond_3_last
             result_df.at[idx, 'Q_Last_Valid_Cond_4'] = cond_4_last
+            result_df.at[idx, 'Q_Last_Valid_Cond_5'] = cond_5_last
+            result_df.at[idx, 'Q_Last_Valid_Cond_6'] = cond_6_last
             
             # 判定 Q_Min_Valid 是否為異常值
-            is_outlier_min, reason_min, cond_1_min, cond_2_min, cond_3_min, cond_4_min = check_outlier(
+            is_outlier_min, reason_min, cond_1_min, cond_2_min, cond_3_min, cond_4_min, cond_5_min, cond_6_min = check_outlier(
                 Q_Min_Valid_Spread, Q_Min_Valid_Bid, Q_Min_Valid_Ask,
                 current_ema, gamma_min, Q_hat_Mid_prev
             )
@@ -557,6 +569,8 @@ def add_ema_and_outlier_detection(df, term_name):
             result_df.at[idx, 'Q_Min_Valid_Cond_2'] = cond_2_min
             result_df.at[idx, 'Q_Min_Valid_Cond_3'] = cond_3_min
             result_df.at[idx, 'Q_Min_Valid_Cond_4'] = cond_4_min
+            result_df.at[idx, 'Q_Min_Valid_Cond_5'] = cond_5_min
+            result_df.at[idx, 'Q_Min_Valid_Cond_6'] = cond_6_min
             
             # ===== 步驟三：決定最終篩選報價 Q_hat =====
             
@@ -705,7 +719,7 @@ def main(target_date=None):
 # PROD 格式輸出轉換（只調整輸出格式，不動計算邏輯）
 # ==============================================================================
 
-def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4):
+def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4, cond_5=False, cond_6=False):
     """
     將異常值標記轉換為 PROD 格式
     
@@ -713,10 +727,14 @@ def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4):
     - 無資料或無法判定 → "-"
     - 是異常值 (True) → "V" (Violation)
     - 非異常值 (False) → 輸出符合的條件編號，如 "1", "2", "1,2" 等
+    - 例外情況 2（第一筆資料/Q_hat_Mid_prev 為 null）→ "5"
+    - 例外情況 3（EMA 為 null）→ "6"
     
     Args:
         is_outlier: 是否為異常值 (True/False/None)
         cond_1~4: 各條件是否通過
+        cond_5: 例外情況 2（第一筆資料）
+        cond_6: 例外情況 3（EMA 為 null）
         
     Returns:
         str: PROD 格式的異常值標記
@@ -739,6 +757,10 @@ def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4):
         passed_conds.append("3")
     if cond_4:
         passed_conds.append("4")
+    if cond_5:
+        passed_conds.append("5")
+    if cond_6:
+        passed_conds.append("6")
     
     if passed_conds:
         return ",".join(passed_conds)
@@ -776,7 +798,9 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
             row.get('Q_Last_Valid_Cond_1'),
             row.get('Q_Last_Valid_Cond_2'),
             row.get('Q_Last_Valid_Cond_3'),
-            row.get('Q_Last_Valid_Cond_4')
+            row.get('Q_Last_Valid_Cond_4'),
+            row.get('Q_Last_Valid_Cond_5'),
+            row.get('Q_Last_Valid_Cond_6')
         ), axis=1
     )
     call_df['c.min_outlier'] = call_df.apply(
@@ -785,7 +809,9 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
             row.get('Q_Min_Valid_Cond_1'),
             row.get('Q_Min_Valid_Cond_2'),
             row.get('Q_Min_Valid_Cond_3'),
-            row.get('Q_Min_Valid_Cond_4')
+            row.get('Q_Min_Valid_Cond_4'),
+            row.get('Q_Min_Valid_Cond_5'),
+            row.get('Q_Min_Valid_Cond_6')
         ), axis=1
     )
     
@@ -796,7 +822,9 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
             row.get('Q_Last_Valid_Cond_1'),
             row.get('Q_Last_Valid_Cond_2'),
             row.get('Q_Last_Valid_Cond_3'),
-            row.get('Q_Last_Valid_Cond_4')
+            row.get('Q_Last_Valid_Cond_4'),
+            row.get('Q_Last_Valid_Cond_5'),
+            row.get('Q_Last_Valid_Cond_6')
         ), axis=1
     )
     put_df['p.min_outlier'] = put_df.apply(
@@ -805,7 +833,9 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
             row.get('Q_Min_Valid_Cond_1'),
             row.get('Q_Min_Valid_Cond_2'),
             row.get('Q_Min_Valid_Cond_3'),
-            row.get('Q_Min_Valid_Cond_4')
+            row.get('Q_Min_Valid_Cond_4'),
+            row.get('Q_Min_Valid_Cond_5'),
+            row.get('Q_Min_Valid_Cond_6')
         ), axis=1
     )
     
@@ -880,6 +910,11 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
         on=['time', 'strike'], 
         how='outer'
     )
+    
+    # 【修正】Bid=NaN 時（merge 後該側不存在），gamma 填入 GAMMA_0 (1.2)
+    # PROD 對無資料的一側仍輸出 gamma=1.2（bid=0 或 bid=NaN → GAMMA_0）
+    output_df['c.gamma'] = output_df['c.gamma'].fillna(GAMMA_0)
+    output_df['p.gamma'] = output_df['p.gamma'].fillna(GAMMA_0)
     
     # 新增 date 欄位
     # 我們假設 df 裡面的 Time 是 HHMMSS，而日期是外部傳入的 target_date

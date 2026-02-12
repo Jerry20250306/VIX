@@ -112,7 +112,13 @@ def get_ticks():
     sys_id = request.args.get("sys_id")
     prev_sys_id = request.args.get("prev_sys_id")
     
-    if not all([date, term, strike, cp, sys_id]):
+    # 手動指定 SysID 範圍 (可選)
+    curr_start = request.args.get("curr_start")
+    curr_end = request.args.get("curr_end")
+    prev_start = request.args.get("prev_start")
+    prev_end = request.args.get("prev_end")
+    
+    if not all([date, term, strike, cp]):
         return jsonify({"error": "缺少參數"}), 400
     
     try:
@@ -121,8 +127,12 @@ def get_ticks():
             term=term,
             strike=int(strike),
             cp=cp,
-            sys_id=sys_id,
-            prev_sys_id=prev_sys_id if prev_sys_id else None
+            sys_id=sys_id or "0",
+            prev_sys_id=prev_sys_id if prev_sys_id else None,
+            curr_start=curr_start if curr_start else None,
+            curr_end=curr_end if curr_end else None,
+            prev_start=prev_start if prev_start else None,
+            prev_end=prev_end if prev_end else None
         )
         return jsonify(result)
     except Exception as e:

@@ -118,55 +118,12 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
     # 1. 準備 PROD 資料（展開為 Call/Put 兩列）並保留 SysID
     prod_valid = prod_df[prod_df['strike'].notna() & (prod_df['strike'] != '')].copy()
     
-    # 建立 SysID 對照表 (Time -> SysID)
-    # 假設同一時間點的 snapshot_sysID 是一樣的，取第一個非空的即可
-    time_sysid_map = {}
-    
-    # 檢查欄位名稱 (可能是 snapshot_sysID 或其他)
-    sysid_col = 'snapshot_sysID'
-    if sysid_col not in prod_valid.columns:
-        # 嘗試找看看是否有類似名稱
-        possible_cols = [c for c in prod_valid.columns if 'sysID' in c or 'sysid' in c]
-        if possible_cols:
-             # 優先找 snapshot_sysID
-             if 'snapshot_sysID' in possible_cols:
-                 sysid_col = 'snapshot_sysID'
-             else:
-                 sysid_col = possible_cols[0] # 取第一個
-                 print(f"  警告: 找不到 snapshot_sysID，改用 {sysid_col}")
-        else:
-             print("  警告: 找不到 SysID 相關欄位")
-             sysid_col = None
-
-    if sysid_col:
-        # 依時間排序確保正確性
-        sorted_prod = prod_valid.sort_values('time')
-        # 建立 Time -> SysID 映射
-        valid_sysid = sorted_prod[['time', sysid_col]].drop_duplicates('time')
-        # 移除空值
-        valid_sysid = valid_sysid[valid_sysid[sysid_col].notna() & (valid_sysid[sysid_col] != '')]
-        time_sysid_map = dict(zip(valid_sysid['time'], valid_sysid[sysid_col]))
+    # time_sysid_map 已棄用，改用 DataFrame 直接計算 Prev_SysID
+    # time_sysid_map logic removed
     
     # 取得由時間排序的唯一時間列表，用來找 Prev_SysID
-    sorted_times = sorted(list(time_sysid_map.keys()))
-    
-    def get_sysid_info(time_val):
-        curr_sysid = time_sysid_map.get(time_val, '')
-        
-        # 找前一筆 SysID
-        prev_sysid = ''
-        try:
-            # 這是比較慢的方法，但在錯誤量不大時可接受
-            # 若效能太差可優化
-            if time_val in sorted_times:
-                idx = sorted_times.index(time_val)
-                if idx > 0:
-                    prev_time = sorted_times[idx - 1]
-                    prev_sysid = time_sysid_map.get(prev_time, '')
-        except ValueError:
-            pass
-            
-        return curr_sysid, prev_sysid
+    # get_sysid_info 已棄用，改用 DataFrame 內建欄位
+    # get_sysid_info removed
 
     # 展開 PROD Call/Put
     prod_valid['Time'] = prod_valid['time']
@@ -178,7 +135,8 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
     # Call Columns
     prod_call_cols = prod_cols_base + [
         'c.ema', 'c.gamma', 'c.last_outlier', 'c.min_outlier',
-        'c.bid', 'c.ask', 'c.last_bid', 'c.last_ask', 'c.min_bid', 'c.min_ask'
+        'c.bid', 'c.ask', 'c.last_bid', 'c.last_ask', 'c.min_bid', 'c.min_ask',
+        'c.last_sysID'
     ]
     # 檢查欄位是否存在
     prod_call_cols = [c for c in prod_call_cols if c in prod_valid.columns]
@@ -192,14 +150,16 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
         'c.last_outlier': 'PROD_Last_Outlier', 'c.min_outlier': 'PROD_Min_Outlier',
         'c.bid': 'PROD_Q_hat_Bid', 'c.ask': 'PROD_Q_hat_Ask',
         'c.last_bid': 'PROD_Last_Bid', 'c.last_ask': 'PROD_Last_Ask',
-        'c.min_bid': 'PROD_Min_Bid', 'c.min_ask': 'PROD_Min_Ask'
+        'c.min_bid': 'PROD_Min_Bid', 'c.min_ask': 'PROD_Min_Ask',
+        'c.last_sysID': 'SysID'
     }
     prod_call = prod_call.rename(columns=rename_map_c)
 
     # Put Columns
     prod_put_cols = prod_cols_base + [
         'p.ema', 'p.gamma', 'p.last_outlier', 'p.min_outlier',
-        'p.bid', 'p.ask', 'p.last_bid', 'p.last_ask', 'p.min_bid', 'p.min_ask'
+        'p.bid', 'p.ask', 'p.last_bid', 'p.last_ask', 'p.min_bid', 'p.min_ask',
+        'p.last_sysID'
     ]
     # 檢查欄位是否存在
     prod_put_cols = [c for c in prod_put_cols if c in prod_valid.columns]
@@ -212,11 +172,26 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
         'p.last_outlier': 'PROD_Last_Outlier', 'p.min_outlier': 'PROD_Min_Outlier',
         'p.bid': 'PROD_Q_hat_Bid', 'p.ask': 'PROD_Q_hat_Ask',
         'p.last_bid': 'PROD_Last_Bid', 'p.last_ask': 'PROD_Last_Ask',
-        'p.min_bid': 'PROD_Min_Bid', 'p.min_ask': 'PROD_Min_Ask'
+        'p.min_bid': 'PROD_Min_Bid', 'p.min_ask': 'PROD_Min_Ask',
+        'p.last_sysID': 'SysID'
     }
     prod_put = prod_put.rename(columns=rename_map_p)
     
     prod_long = pd.concat([prod_call, prod_put], ignore_index=True)
+    
+    # 計算 Prev_SysID
+    # 1. 確保 SysID 為數值 (可能有空值)
+    prod_long['SysID'] = pd.to_numeric(prod_long['SysID'], errors='coerce').fillna(0).astype(int)
+    
+    # 2. 排序: Strike, CP, Time
+    # 假設 Time 是 HH:MM:SS 字串，可直接排序
+    prod_long = prod_long.sort_values(['Strike', 'CP', 'Time'])
+    
+    # 3. GroupBy shift
+    prod_long['Prev_SysID'] = prod_long.groupby(['Strike', 'CP'])['SysID'].shift(1)
+    
+    # 第一筆的 Prev_SysID 設為 0
+    prod_long['Prev_SysID'] = prod_long['Prev_SysID'].fillna(0).astype(int)
 
     # 2. 準備我們的計算結果 (Wide Format -> Long Format)
     print(f"  正在準備我們的計算結果 (轉為 Long Format)...")
@@ -369,7 +344,8 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
             
             for idx, row in diff_rows.iterrows():
                 time_val = row['Time']
-                curr_sysid, prev_sysid = get_sysid_info(time_val)
+                curr_sysid = row.get('SysID', 0)
+                prev_sysid = row.get('Prev_SysID', 0)
                 
                 diff_list.append({
                     'Date': target_date,

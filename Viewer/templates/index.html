@@ -67,6 +67,39 @@
                 <div id="compare-container"></div>
 
                 <h3>原始 Tick 資料追踪</h3>
+                <!-- 手動 SysID 範圍查詢 -->
+                <div id="manual-tick-query"
+                    style="display:none; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:12px; margin-bottom:12px;">
+                    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+                        <div>
+                            <label style="font-size:12px; color:#666;">當前區間 SysID 起</label><br>
+                            <input type="number" id="manual-curr-start" style="width:120px; padding:4px 6px;"
+                                placeholder="起 (exclusive)">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">當前區間 SysID 迄</label><br>
+                            <input type="number" id="manual-curr-end" style="width:120px; padding:4px 6px;"
+                                placeholder="迄 (inclusive)">
+                        </div>
+                        <div style="border-left:1px solid #ccc; padding-left:16px;">
+                            <label style="font-size:12px; color:#666;">前一區間 SysID 起</label><br>
+                            <input type="number" id="manual-prev-start" style="width:120px; padding:4px 6px;"
+                                placeholder="起 (exclusive)">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">前一區間 SysID 迄</label><br>
+                            <input type="number" id="manual-prev-end" style="width:120px; padding:4px 6px;"
+                                placeholder="迄 (inclusive)">
+                        </div>
+                        <div>
+                            <button onclick="reloadTicksManual()"
+                                style="padding:6px 16px; background:#0d6efd; color:white; border:none; border-radius:4px; cursor:pointer;">🔍
+                                查詢</button>
+                            <button onclick="resetTickInputs()"
+                                style="padding:6px 12px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer; margin-left:4px;">重置</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="ticks-wrapper">
                     <div class="tick-box">
                         <h4>當前區間 (SysID: <span id="curr-sysid-range"></span>)</h4>

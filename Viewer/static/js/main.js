@@ -9,6 +9,7 @@ let currentDate = null;
 let currentPage = 1;
 const perPage = 200; // Updated to 200 as requested
 let currentColumnFilter = "all";
+let currentTickRow = null; // 儲存目前檢視明細的 row，供手動查詢 Tick 用
 
 async function init() {
     const dateSelect = document.getElementById("date-selector");
@@ -218,6 +219,9 @@ function goToPage(page) {
 async function viewDetail(row) {
     console.log("查看明細:", row);
 
+    // 儲存 row context 供手動查詢使用
+    currentTickRow = row;
+
     const detailPanel = document.getElementById("detail-panel");
     const compareContainer = document.getElementById("compare-container");
     const currTicksContainer = document.getElementById("curr-ticks");
@@ -231,6 +235,14 @@ async function viewDetail(row) {
 
     document.getElementById("curr-sysid-range").textContent = `${row.Prev_SysID || '?'} ~ ${row.SysID}`;
     document.getElementById("prev-sysid-range").textContent = `? ~ ${row.Prev_SysID || '?'}`;
+
+    // 顯示手動查詢區塊並填入預設值
+    const manualQuery = document.getElementById("manual-tick-query");
+    manualQuery.style.display = "block";
+    document.getElementById("manual-curr-start").value = row.Prev_SysID || '';
+    document.getElementById("manual-curr-end").value = row.SysID || '';
+    document.getElementById("manual-prev-start").value = '';
+    document.getElementById("manual-prev-end").value = row.Prev_SysID || '';
 
     // 捲動到明細區塊
     detailPanel.scrollIntoView({ behavior: "smooth" });
@@ -397,4 +409,79 @@ function renderTickTable(intervalData, container, type) {
 
     html += `</tbody></table>`;
     container.innerHTML = html;
+}
+
+// ===== 手動 SysID 查詢 =====
+
+async function reloadTicksManual() {
+    if (!currentTickRow) {
+        alert("請先點選差異列表中的『查看明細』");
+        return;
+    }
+
+    const currStart = document.getElementById("manual-curr-start").value;
+    const currEnd = document.getElementById("manual-curr-end").value;
+    const prevStart = document.getElementById("manual-prev-start").value;
+    const prevEnd = document.getElementById("manual-prev-end").value;
+
+    if (!currEnd && !prevEnd) {
+        alert("請至少填入當前區間 SysID 迄 或 前一區間 SysID 迄");
+        return;
+    }
+
+    const currContainer = document.getElementById("curr-ticks");
+    const prevContainer = document.getElementById("prev-ticks");
+
+    currContainer.innerHTML = "查詢中...";
+    prevContainer.innerHTML = "查詢中...";
+
+    // 更新顯示標題
+    document.getElementById("curr-sysid-range").textContent = `${currStart || '?'} ~ ${currEnd || '?'}`;
+    document.getElementById("prev-sysid-range").textContent = `${prevStart || '?'} ~ ${prevEnd || '?'}`;
+
+    try {
+        const row = currentTickRow;
+        const params = new URLSearchParams({
+            date: row.Date,
+            term: row.Term,
+            strike: row.Strike,
+            cp: row.CP,
+            sys_id: row.SysID || "0",
+            prev_sys_id: row.Prev_SysID || ""
+        });
+
+        // 加入手動範圍參數
+        if (currStart) params.set("curr_start", currStart);
+        if (currEnd) params.set("curr_end", currEnd);
+        if (prevStart) params.set("prev_start", prevStart);
+        if (prevEnd) params.set("prev_end", prevEnd);
+
+        const res = await fetch(`${API_BASE}/ticks?${params}`);
+        if (!res.ok) throw new Error("API Error");
+
+        const data = await res.json();
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        renderTickTable(data.current_interval, currContainer, "current");
+        renderTickTable(data.prev_interval, prevContainer, "prev");
+
+    } catch (err) {
+        console.error("手動查詢 Ticks 失敗:", err);
+        currContainer.innerHTML = `<span style="color:red">查詢失敗: ${err.message}</span>`;
+        prevContainer.innerHTML = "-";
+    }
+}
+
+function resetTickInputs() {
+    if (!currentTickRow) return;
+    const row = currentTickRow;
+    document.getElementById("manual-curr-start").value = row.Prev_SysID || '';
+    document.getElementById("manual-curr-end").value = row.SysID || '';
+    document.getElementById("manual-prev-start").value = '';
+    document.getElementById("manual-prev-end").value = row.Prev_SysID || '';
+    // 重新使用預設值載入
+    loadTickData(row);
 }
