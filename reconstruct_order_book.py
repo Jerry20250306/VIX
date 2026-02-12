@@ -238,15 +238,16 @@ class SnapshotScheduler:
         
     def load_schedule(self):
         """
-        讀取 NearPROD 或 NextPROD，提取 Snapshot 觸發點。
+        讀取 NearPROD 或 NextPROD，提取 Snapshot 觸發點與 Strike 列表。
         
-        :return: tuple (schedule_df, initial_sys_id)
+        :return: tuple (schedule_df, initial_sys_id, prod_strikes)
             - schedule_df: DataFrame (columns: ['time_obj', 'sys_id', 'orig_time_str'])
             - initial_sys_id: Line 2 的 SysID (054500 的 Target_SysID)，作為計算 084515 的 prev_sys_id
+            - prod_strikes: 排序後的 Strike 列表 (int)，來自 PROD 檔案，全天固定
         """
         if not os.path.exists(self.prod_file_path):
             print(f"錯誤: 找不到 PROD 檔案: {self.prod_file_path}")
-            return pd.DataFrame(), 0
+            return pd.DataFrame(), 0, []
             
         print(f"讀取排程檔: {os.path.basename(self.prod_file_path)}")
         
@@ -257,7 +258,7 @@ class SnapshotScheduler:
             lines = f.readlines()
             
         if len(lines) < 2:
-            return pd.DataFrame(), 0
+            return pd.DataFrame(), 0, []
             
         # 1. 處理 Line 2 特例 (054500 Start Row)
         # 格式: 84500 <tab> 22934
@@ -274,23 +275,35 @@ class SnapshotScheduler:
         try:
             time_idx = header_parts.index('time')
             sys_id_idx = header_parts.index('snapshot_sysID')
+            strike_idx = header_parts.index('strike')  # 第一個 strike 欄位
         except ValueError:
-            print("錯誤: PROD 檔缺少 time 或 snapshot_sysID 欄位")
-            return pd.DataFrame(), initial_sys_id
+            print("錯誤: PROD 檔缺少 time, snapshot_sysID 或 strike 欄位")
+            return pd.DataFrame(), initial_sys_id, []
             
         # 遍歷剩餘行數
         # 注意: PROD 檔是每個 Strike 一行，所以 Time/SysID 會重複
         # 我們需要去重 (Deduplicate)，只取每個時間點一次
+        # 同時擷取全天固定的 Strike 列表
         seen_times = set()
-        if schedule_list:
-            seen_times.add(schedule_list[0]['orig_time_str'])
+        seen_strikes = set()
+        first_time_found = False
             
         for line in lines[2:]:
             parts = line.strip().split('\t')
-            if len(parts) <= max(time_idx, sys_id_idx):
+            if len(parts) <= max(time_idx, sys_id_idx, strike_idx):
                 continue
                 
             t_str = parts[time_idx].strip()
+            
+            # 擷取 Strike（只需從第一個時間點擷取，因為全天固定）
+            if not first_time_found or (len(seen_times) == 1 and t_str in seen_times):
+                try:
+                    strike_val = int(parts[strike_idx])
+                    seen_strikes.add(strike_val)
+                except ValueError:
+                    pass
+                first_time_found = True
+            
             # PROD 檔 Time 可能是 084515
             if t_str not in seen_times:
                 s_id = int(parts[sys_id_idx])
@@ -303,9 +316,10 @@ class SnapshotScheduler:
                 })
                 seen_times.add(t_str)
                 
+        prod_strikes = sorted(seen_strikes)
         df = pd.DataFrame(schedule_list)
-        print(f"排程載入完成，共 {len(df)} 個快照時間點。")
-        return df, initial_sys_id
+        print(f"排程載入完成，共 {len(df)} 個快照時間點，{len(prod_strikes)} 個 Strike。")
+        return df, initial_sys_id, prod_strikes
 
 class SnapshotReconstructor:
     """
@@ -317,7 +331,7 @@ class SnapshotReconstructor:
         """
         self.ticks_df = ticks_df
         
-    def reconstruct_at(self, target_time_obj, target_sys_id, prev_sys_id=0):
+    def reconstruct_at(self, target_time_obj, target_sys_id, prev_sys_id=0, prod_strikes=None):
         """
         重建特定時間點的委託簿快照 (Dual Strategy)。
         
@@ -371,6 +385,8 @@ class SnapshotReconstructor:
             target_time_obj: 目標時間 (datetime)
             target_sys_id: 當前快照的 SysID (SeqNo 上限)
             prev_sys_id: 前一個快照的 SysID (用於計算區間起始，預設為 0)
+            prod_strikes: PROD 檔案的 Strike 列表 (sorted int list)。
+                          若提供，以此為模板確保完整 strike × CP 組合。
             
         Returns:
             DataFrame with columns:
@@ -472,11 +488,10 @@ class SnapshotReconstructor:
         snapshot_min = pd.DataFrame(min_results)
         
         if snapshot_last.empty:
-            return pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
+            result = pd.DataFrame(columns=['Strike', 'CP', 'My_Last_Bid', 'My_Last_Ask', 
                                          'My_Last_SysID', 'My_Last_Time', 'My_Last_ProdID',
                                          'My_Min_Bid', 'My_Min_Ask', 'My_Min_Spread', 'My_Min_SysID'])
-        
-        if snapshot_min.empty:
+        elif snapshot_min.empty:
             result = snapshot_last
             result['My_Min_Bid'] = np.nan
             result['My_Min_Ask'] = np.nan
@@ -485,9 +500,22 @@ class SnapshotReconstructor:
         else:
             result = pd.merge(snapshot_last, snapshot_min, on=['Strike', 'CP'], how='outer')
         
+        # =====================================================================
+        # Step 5: 以 PROD strike 模板補齊缺少的 strike × CP
+        # =====================================================================
+        if prod_strikes is not None:
+            # 建立完整的 strike × CP 模板
+            template = pd.DataFrame([
+                {'Strike': s, 'CP': cp}
+                for s in prod_strikes
+                for cp in ['Call', 'Put']
+            ])
+            # 以模板為基準做 left join，確保所有 strike × CP 都存在
+            result = pd.merge(template, result, on=['Strike', 'CP'], how='left')
+        
         return result
 
-    def reconstruct_all(self, schedule_times, initial_sys_id):
+    def reconstruct_all(self, schedule_times, initial_sys_id, prod_strikes=None):
         """
         【增量式】一次重建所有時間點的委託簿快照。
         
@@ -500,6 +528,9 @@ class SnapshotReconstructor:
         Args:
             schedule_times: list of (time_obj, sys_id, time_str) tuples，依時間排序
             initial_sys_id: 初始 SysID（排程的第一個 SysID，用作第一個時間點的 prev）
+            prod_strikes: PROD 檔案的 Strike 列表 (sorted int list)。
+                          若提供，則以此為模板，確保每個時間點都有完整的 strike × CP 組合。
+                          若為 None，則沿用原有行為（從 Tick 資料推導）。
             
         Returns:
             單一 DataFrame，包含所有時間點的快照（含 Time, Snapshot_SysID 欄位）
@@ -590,8 +621,37 @@ class SnapshotReconstructor:
             global_processed_up_to = target_end_idx
             
             # Step C: 建立該時間點所有商品的結果（直接寫入 flat list）
-            for key, last_info in q_last.items():
+            # 若有 prod_strikes 模板，則遍歷 prod_strikes × ['Call', 'Put']；
+            # 否則沿用原有行為（從 q_last.keys() 推導）
+            if prod_strikes is not None:
+                iterate_keys = [(s, cp) for s in prod_strikes for cp in ['Call', 'Put']]
+            else:
+                iterate_keys = list(q_last.keys())
+            
+            for key in iterate_keys:
                 strike, cp = key
+                last_info = q_last.get(key)
+                
+                # 若該 (strike, CP) 在 q_last 中不存在（PROD 有但 Tick 無），填入全 NaN
+                if last_info is None:
+                    all_rows.append({
+                        'Time': time_str,
+                        'Snapshot_SysID': target_sys_id,
+                        'Strike': strike,
+                        'CP': cp,
+                        'My_Last_Raw_Bid': np.nan,
+                        'My_Last_Raw_Ask': np.nan,
+                        'My_Last_Bid': np.nan,
+                        'My_Last_Ask': np.nan,
+                        'My_Last_SysID': np.nan,
+                        'My_Last_Time': np.nan,
+                        'My_Last_ProdID': np.nan,
+                        'My_Min_Bid': np.nan,
+                        'My_Min_Ask': np.nan,
+                        'My_Min_Spread': np.nan,
+                        'My_Min_SysID': np.nan
+                    })
+                    continue
                 
                 # ========== Q_Last Valid ==========
                 # 使用 q_last_valid（已在 tick 迴圈中增量維護）
@@ -896,7 +956,7 @@ def main():
         
         # 載入排程找 SysID (回傳 schedule_df 和 initial_sys_id)
         scheduler = SnapshotScheduler(prod_path)
-        schedule, _ = scheduler.load_schedule()  # 忽略 initial_sys_id，此處測試用
+        schedule, _, prod_strikes = scheduler.load_schedule()  # 忽略 initial_sys_id，此處測試用
         target_row = schedule[schedule['orig_time_str'] == TARGET_TIME]
         
         if target_row.empty:

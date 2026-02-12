@@ -770,9 +770,9 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
         print(f"\n>>> 處理 {term_name} Term")
         prod_path = os.path.join(prod_dir, prod_filename)
         
-        # 載入排程 (回傳 schedule_df 和初始 SysID)
+        # 載入排程 (回傳 schedule_df、初始 SysID 和 PROD strike 列表)
         scheduler = SnapshotScheduler(prod_path)
-        schedule, initial_sys_id = scheduler.load_schedule()
+        schedule, initial_sys_id, prod_strikes = scheduler.load_schedule()
         
         if process_all_times or end_time or max_time_points:
             # 處理多個時間點（全天、範圍或測試）
@@ -809,7 +809,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             
             # 【效能優化】只建構一次 Reconstructor，一次處理所有時間點
             reconstructor = SnapshotReconstructor(ticks)
-            snapshot_df = reconstructor.reconstruct_all(schedule_times, initial_sys_id)
+            snapshot_df = reconstructor.reconstruct_all(schedule_times, initial_sys_id, prod_strikes=prod_strikes)
             
             # 【效能優化】向量化報表建立（取代 iterrows）
             snapshot_df['Term'] = term_name
@@ -935,7 +935,7 @@ def main(process_all_times=False, target_time=None, end_time=None, max_time_poin
             # 重建快照 (搜尋區間: prev_sys_id < SeqNo <= sys_id)
             print("  重建委託簿快照...")
             reconstructor = SnapshotReconstructor(ticks)
-            snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id)
+            snapshot = reconstructor.reconstruct_at(t_obj, sys_id, prev_sys_id, prod_strikes=prod_strikes)
             
             print(f"  重建完成，共 {len(snapshot)} 筆序列")
             

@@ -64,8 +64,12 @@
 
 | 符號 | 名稱 | 定義 |
 |:---|:---|:---|
-| Q_Last_Valid_t | 最近有效報價 | t 時點前最後一筆報價，且已通過有效性檢查 |
-| Q_Min_Valid_t | 最小價差有效報價 | t 時點前 15 秒內價差最小的報價，且已通過有效性檢查 |
+| Q_Last_Valid_t | 最近有效報價 | t 時點前最後一筆報價，且已通過有效性檢查。**若無對應報價 (因 PROD Template 補齊)，則為 Null。** |
+| Q_Min_Valid_t | 最小價差有效報價 | t 時點前 15 秒內價差最小的報價，且已通過有效性檢查。**若無對應報價，則為 Null。** |
+
+**補齊機制 (Template Filling):**
+為確保輸出格式與 PROD 檔案一致，系統會讀取 PROD 檔案中的 Strike 列表作為模板。
+對於每個時間點，若某個 Strike x CP 組合在 Raw Data 中無報價，仍會保留該紀錄，其數值 (Bid, Ask, Spread) 皆為 Null。
 
 ### 步驟 2: 檢測異常值 (Detect Outliers)
 
@@ -98,6 +102,9 @@ Q_Last_Valid_t 與 Q_Min_Valid_t 各自獨立計算 gamma，參考對象為上�
 
 1. Spread(Q_Last_Valid_t) <= gamma(Q_Last_Valid_t) * EMA_t (價差符合 EMA 比例)
 2. Spread(Q_Last_Valid_t) < lambda (價差極小，lambda = 15.0)
+
+**缺失資料處理:**
+若報價本身為 Null (因 Template 補齊)，則視為 **非異常值 (Not Outlier)**，在 PROD 格式輸出中標記為 `-`。
 3. Q_Last_Valid_Bid_t > Q_hat_Mid_t-1 (買價突破上一期中價)
 4. Q_Last_Valid_Ask_t < Q_hat_Mid_t-1 且 Q_Last_Valid_Bid_t > 0 (賣價跌破上一期中價)
 

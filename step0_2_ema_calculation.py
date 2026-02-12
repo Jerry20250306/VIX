@@ -349,9 +349,9 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
     cond_6 = False
     
     # ===== 例外情況 1：報價本身為 null =====
-    # [已註記] 讓報價為 null 的情況繼續往下判斷，以便命中 cond_5/cond_6
-    # if not is_valid_value(spread):
-    #     return False, "報價為 null → 視為非異常值", False, False, False, False, False, False
+    # 若 Spread/Bid/Ask 皆為無效，視為無資料 (None)
+    if not is_valid_value(spread) and not is_valid_value(bid) and not is_valid_value(ask):
+        return None, "報價為 null → 無資料", False, False, False, False, False, False
     
     # ===== 例外情況 3：EMA_t-1 為 null → 填入 6 =====
     # [修正順序] 先檢查 EMA，因為 PROD 優先報告 EMA 為 null (6)
