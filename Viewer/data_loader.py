@@ -95,9 +95,13 @@ class DiffLoader:
             "all_columns": self.ALL_COMPARED_COLUMNS
         }
     
-    def get_page(self, date, page=1, per_page=100):
-        """取得分頁資料"""
+    def get_page(self, date, page=1, per_page=100, column=None):
+        """取得分頁資料 (可選篩選特定欄位)"""
         df = self._load_df(date)
+        
+        # 篩選欄位
+        if column and column != "all":
+            df = df[df["Column"].astype(str).str.strip() == column.strip()]
         
         total = len(df)
         total_pages = max(1, (total + per_page - 1) // per_page)

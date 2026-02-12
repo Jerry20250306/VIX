@@ -45,11 +45,13 @@ def get_diff(date):
         # 限制 per_page 最大值，避免前端傳入過大值
         per_page = min(per_page, 500)
         
+        column = request.args.get("column") # 新增篩選參數
+        
         # 取得摘要（快速，不分頁）
         summary_data = diff_loader.get_summary(date, prod_loader=prod_loader)
         
         # 取得分頁資料
-        page_data = diff_loader.get_page(date, page, per_page)
+        page_data = diff_loader.get_page(date, page, per_page, column=column)
         
         return jsonify({
             "date": date,

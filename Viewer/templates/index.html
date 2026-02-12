@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIX 驗證結果瀏覽器</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -28,7 +30,15 @@
 
             <!-- 差異列表 (未來實作) -->
             <section id="diff-panel" class="panel hidden">
-                <h2>差異列表</h2>
+                <header style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2>差異列表</h2>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="column-filter">篩選欄位:</label>
+                        <select id="column-filter" style="padding: 5px;">
+                            <option value="all">全部</option>
+                        </select>
+                    </div>
+                </header>
                 <div class="table-container">
                     <table id="diff-table">
                         <thead>
@@ -55,7 +65,7 @@
             <section id="detail-panel" class="panel hidden">
                 <h2>詳細資料比對</h2>
                 <div id="compare-container"></div>
-                
+
                 <h3>原始 Tick 資料追踪</h3>
                 <div class="ticks-wrapper">
                     <div class="tick-box">
@@ -73,4 +83,5 @@
 
     <script src="/static/js/main.js"></script>
 </body>
+
 </html>

@@ -4,13 +4,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const API_BASE = "/api";
 
-// 分頁狀態
+// 分頁與篩選狀態
 let currentDate = null;
 let currentPage = 1;
-const perPage = 100;
+const perPage = 200; // Updated to 200 as requested
+let currentColumnFilter = "all";
 
 async function init() {
     const dateSelect = document.getElementById("date-selector");
+    const colFilter = document.getElementById("column-filter");
 
     try {
         const res = await fetch(`${API_BASE}/dates`);
@@ -28,10 +30,21 @@ async function init() {
             if (e.target.value) {
                 currentDate = e.target.value;
                 currentPage = 1;
+                // 重置篩選
+                currentColumnFilter = "all";
+                colFilter.value = "all";
                 loadDiffData(currentDate, currentPage);
             } else {
                 clearPanels();
             }
+        });
+
+        // 監聽欄位篩選
+        colFilter.addEventListener("change", (e) => {
+            if (!currentDate) return;
+            currentColumnFilter = e.target.value;
+            currentPage = 1;
+            loadDiffData(currentDate, currentPage);
         });
 
     } catch (err) {
@@ -45,12 +58,15 @@ async function loadDiffData(date, page) {
     loading.style.display = "inline";
 
     try {
-        const res = await fetch(`${API_BASE}/diff/${date}?page=${page}&per_page=${perPage}`);
+        // 加入 column 參數
+        const url = `${API_BASE}/diff/${date}?page=${page}&per_page=${perPage}&column=${currentColumnFilter}`;
+        const res = await fetch(url);
         if (!res.ok) throw new Error("API Error");
 
         const data = await res.json();
 
         renderSummary(data);
+        updateColumnFilterOptions(data); // 更新篩選選單
         renderDiffTable(data.rows);
         renderPagination(data.page, data.total_pages, data.total);
 
@@ -64,6 +80,27 @@ async function loadDiffData(date, page) {
     } finally {
         loading.style.display = "none";
     }
+}
+
+function updateColumnFilterOptions(data) {
+    const select = document.getElementById("column-filter");
+    const currentVal = select.value;
+    const allCols = data.all_columns || [];
+
+    // 若選項已存在且數量一致，則不重新渲染 (避免畫面閃爍或使用者操作中斷)
+    // 但簡單起見，我們檢查第一個選項之後的長度
+    if (select.options.length - 1 === allCols.length) {
+        return;
+    }
+
+    let html = '<option value="all">全部</option>';
+    allCols.forEach(col => {
+        const isSelected = col === currentVal ? 'selected' : '';
+        html += `<option value="${col}" ${isSelected}>${col}</option>`;
+    });
+    select.innerHTML = html;
+    // 確保值正確 (若是重新渲染)
+    select.value = currentColumnFilter;
 }
 
 function renderSummary(data) {
