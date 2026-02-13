@@ -216,7 +216,9 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
         'c.last_bid': 'Q_Last_Valid_Bid',
         'c.last_ask': 'Q_Last_Valid_Ask',
         'c.last_outlier': 'OURS_Last_Outlier_Str',
-        # 'c.min_outlier': 'OURS_Min_Outlier_Str' # 有些檔案可能沒有 min_outlier
+        'c.min_bid': 'Q_Min_Valid_Bid',
+        'c.min_ask': 'Q_Min_Valid_Ask',
+        'c.min_outlier': 'OURS_Min_Outlier_Str'
     }
     
     # 確保欄位存在
@@ -234,6 +236,9 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
         'p.last_bid': 'Q_Last_Valid_Bid',
         'p.last_ask': 'Q_Last_Valid_Ask',
         'p.last_outlier': 'OURS_Last_Outlier_Str',
+        'p.min_bid': 'Q_Min_Valid_Bid',
+        'p.min_ask': 'Q_Min_Valid_Ask',
+        'p.min_outlier': 'OURS_Min_Outlier_Str'
     }
     
     cols_p = ['Time', 'Strike'] + [c for c in map_p.keys() if c in calc_df.columns]
@@ -245,7 +250,11 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
     calc_subset = pd.concat([calc_call, calc_put], ignore_index=True)
     
     # 確保所有必要欄位存在 (若來源無該欄位則補 NaN)
-    required_cols = ['EMA', 'Q_Last_Valid_Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_Last_Valid_Bid', 'Q_Last_Valid_Ask', 'OURS_Last_Outlier_Str']
+    required_cols = [
+        'EMA', 'Q_Last_Valid_Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 
+        'Q_Last_Valid_Bid', 'Q_Last_Valid_Ask', 'OURS_Last_Outlier_Str',
+        'Q_Min_Valid_Bid', 'Q_Min_Valid_Ask', 'OURS_Min_Outlier_Str'
+    ]
     for col in required_cols:
         if col not in calc_subset.columns:
             calc_subset[col] = np.nan
@@ -320,9 +329,10 @@ def verify_term_detailed(prod_df, calc_df, term_name, target_date):
         ('Q_hat_Ask', 'PROD_Q_hat_Ask', 'Q_hat_Ask', is_diff_float),
         ('Q_Last_Bid', 'PROD_Last_Bid', 'Q_Last_Valid_Bid', is_diff_float),
         ('Q_Last_Ask', 'PROD_Last_Ask', 'Q_Last_Valid_Ask', is_diff_float),
-        ('Last_Outlier', 'PROD_Last_Outlier', 'OURS_Last_Outlier_Str', is_diff_str),
-        # Min Outlier 暫時不比對，因為 PROD 似乎沒有嚴格輸出？先保留
-        # ('Min_Outlier', 'PROD_Min_Outlier', 'OURS_Min_Outlier_Str', is_diff_str),
+        # ('Last_Outlier', 'PROD_Last_Outlier', 'OURS_Last_Outlier_Str', is_diff_str),  # 註解掉 outlier 檢查
+        ('Min_Bid', 'PROD_Min_Bid', 'Q_Min_Valid_Bid', is_diff_float),
+        ('Min_Ask', 'PROD_Min_Ask', 'Q_Min_Valid_Ask', is_diff_float),
+        # ('Min_Outlier', 'PROD_Min_Outlier', 'OURS_Min_Outlier_Str', is_diff_str),  # 註解掉 outlier 檢查
     ]
     
     print(f"  開始逐項檢查差異...")

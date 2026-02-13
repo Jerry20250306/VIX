@@ -296,49 +296,31 @@ def determine_gamma(current_bid, current_mid, Q_hat_Mid_t_minus_1):
 # 步驟 2.3：異常值判定
 # ==============================================================================
 
-def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
+def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1, ema_t_minus_1=None, is_restart=False):
     """
     檢查報價是否為異常值 (Outlier)
     
-    【判定邏輯說明】（依據 spec.md 2.3）
-    
-    報價只要符合「任一條件」，就視為「非異常值」：
-    
-    Condition 1: Spread <= γ × EMA_t
-        - 價差在 EMA 的合理倍數範圍內
-        - 例：EMA=1.0, γ=2.0 → Spread <= 2.0 即為非異常
-        
-    Condition 2: Spread < λ (λ = 0.5)
-        - 價差極小（小於 0.5 點），一律視為正常
-        - 例：Spread=0.3 < 0.5 → 非異常
-        
-    Condition 3: Bid_t > Q_hat_Mid_t-1
-        - 買價突破上一期的中價（強勢買盤）
-        - 例：Q_hat_Mid=50, Bid=52 → 52 > 50 → 非異常
-        
-    Condition 4: Ask_t < Q_hat_Mid_t-1 且 Bid_t > 0
-        - 賣價跌破上一期的中價（強勢賣盤）
-        - 例：Q_hat_Mid=50, Ask=48, Bid=45 → 48 < 50 且 45 > 0 → 非異常
-    
-    【例外情況】
-    - 若 Q_hat_Mid_t-1 為 null（第一筆資料），一律視為非異常值
-    - 若報價本身為 null，也視為非異常值（無需判定）
+    【判定邏輯修正 (2026/02/13)】
+    依據 PROD 行為與 Spec：
+    1. Exception 檢查優先於「報價是否存在」檢查。
+       - 即使報價為 null，若符合 Exception，仍回傳對應代碼 (5 或 6)。
+    2. Exception 定義：
+       - Code 5: 當日第一筆資料 (First Record)
+       - Code 6: EMA_t-1 為 null (注意：是前一期 EMA)
     
     Args:
-        spread: 當前報價的價差 (Ask - Bid)
+        spread: 當前報價的價差
         bid: 當前報價的買價
         ask: 當前報價的賣價
-        ema_t: 當前時點的 EMA
+        ema_t: 當前時點的 EMA (用於 Condition 1)
         gamma: 該報價對應的 γ 參數
         Q_hat_Mid_t_minus_1: 前一時點篩選後最終報價的中價
+        ema_t_minus_1: 前一時點的 EMA (用於 Exception 3)
+        is_restart: 是否為重新開始 (08:45:15 或 09:00:00) -> Code 5
         
     Returns:
         tuple: (is_outlier, reason, cond_1, cond_2, cond_3, cond_4, cond_5, cond_6)
-            - is_outlier: True=異常值, False=非異常值
-            - reason: 判定原因說明
-            - cond_1~4: 各條件是否通過
-            - cond_5: 例外情況 2（第一筆資料/Q_hat_Mid_t-1 為 null）
-            - cond_6: 例外情況 3（EMA 為 null）
+            - is_outlier: True=異常值, False=非異常值, None=無資料(-)
     """
     # 初始化所有條件狀態為 False
     cond_1 = False
@@ -348,23 +330,23 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
     cond_5 = False
     cond_6 = False
     
+    # ===== Exception 2：當日第一筆資料 (First Record) → Code 5 =====
+    if is_restart:
+         return False, "First Record → 視為非異常值 (Code 5)", False, False, False, False, True, False
+
+    # ===== Exception 3：EMA_t-1 為 null → Code 6 =====
+    # 注意：PROD 檢查的是 EMA_t-1 (Previous EMA)，非 EMA_t
+    if not is_valid_value(ema_t_minus_1):
+        return False, "EMA_t-1 為 null → 視為非異常值 (Code 6)", False, False, False, False, False, True
+
     # ===== 例外情況 1：報價本身為 null =====
-    # 若 Spread/Bid/Ask 皆為無效，視為無資料 (None)
+    # 若 Spread/Bid/Ask 皆為無效，視為無資料 (None) -> Output "-"
     if not is_valid_value(spread) and not is_valid_value(bid) and not is_valid_value(ask):
         return None, "報價為 null → 無資料", False, False, False, False, False, False
     
-    # ===== 例外情況 3：EMA_t-1 為 null → 填入 6 =====
-    # [修正順序] 先檢查 EMA，因為 PROD 優先報告 EMA 為 null (6)
-    if not is_valid_value(ema_t):
-        return False, "EMA_t-1 為 null → 視為非異常值", False, False, False, False, False, True
-        
-    # ===== 例外情況 2：Q_hat_Mid_t-1 為 null（第一筆資料）→ 填入 5 =====
-    if not is_valid_value(Q_hat_Mid_t_minus_1):
-        return False, "Q_hat_Mid_t-1 為 null（第一筆資料）→ 視為非異常值", False, False, False, False, True, False
-    
     # 轉換為數值進行比較
     spread_val = float(spread)
-    prev_mid_val = float(Q_hat_Mid_t_minus_1)
+    prev_mid_val = float(Q_hat_Mid_t_minus_1) if is_valid_value(Q_hat_Mid_t_minus_1) else 0 # 避免 None 轉 float 錯誤 (雖然理論上這裡不會用到)
     
     # ===== Condition 1：Spread <= γ × EMA_t =====
     if is_valid_value(ema_t):
@@ -377,8 +359,8 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
     if spread_val <= LAMBDA:
         cond_2 = True
     
-    # ===== Condition 3 & 4 需要 Bid 和 Ask =====
-    if is_valid_value(bid):
+    # ===== Condition 3 & 4 需要 Bid 和 Ask 以及 Q_hat_prev =====
+    if is_valid_value(Q_hat_Mid_t_minus_1) and is_valid_value(bid):
         bid_val = float(bid)
         
         # ----- Condition 3：Bid_t > Q_hat_Mid_t-1（買價突破上一期中價）-----
@@ -395,14 +377,10 @@ def check_outlier(spread, bid, ask, ema_t, gamma, Q_hat_Mid_t_minus_1):
     if cond_1 or cond_2 or cond_3 or cond_4:
         # 組合所有通過的條件編號
         passed = []
-        if cond_1:
-            passed.append("1")
-        if cond_2:
-            passed.append("2")
-        if cond_3:
-            passed.append("3")
-        if cond_4:
-            passed.append("4")
+        if cond_1: passed.append("1")
+        if cond_2: passed.append("2")
+        if cond_3: passed.append("3")
+        if cond_4: passed.append("4")
         reason = f"Condition {','.join(passed)} 通過 → 非異常值"
         return False, reason, cond_1, cond_2, cond_3, cond_4, cond_5, cond_6
     
@@ -492,17 +470,24 @@ def add_ema_and_outlier_detection(df, term_name):
         Q_hat_Ask_prev = None
         Q_hat_Mid_prev = None
         
+        # 追蹤前一時點的 EMA (用於异常值判断 Exception 3)
+        EMA_prev = None
+        
         for i, idx in enumerate(group_indices):
             row = result_df.loc[idx]
             
-            # 【09:00:00 重置】正式開盤時，清除盤前 Q_hat 歷史
+            # 【09:00:00 重置】正式開盤時，清除盤前 Q_hat 歷史與 EMA 歷史
             # 與 EMA 重置同步，讓 Gamma 判定視為第一筆（Q_hat_Mid_prev = None → gamma = 2.0）
             current_time = row['Time']
             MARKET_OPEN_TIMES = {90000, '90000', '090000'}
-            if current_time in MARKET_OPEN_TIMES:
+            
+            is_start = (i == 0) or (current_time in MARKET_OPEN_TIMES)
+            
+            if is_start:
                 Q_hat_Bid_prev = None
                 Q_hat_Ask_prev = None
                 Q_hat_Mid_prev = None
+                EMA_prev = None
             
             # 取得當前 EMA
             current_ema = row['EMA']
@@ -547,7 +532,8 @@ def add_ema_and_outlier_detection(df, term_name):
             # 判定 Q_Last_Valid 是否為異常值
             is_outlier_last, reason_last, cond_1_last, cond_2_last, cond_3_last, cond_4_last, cond_5_last, cond_6_last = check_outlier(
                 Q_Last_Valid_Spread, Q_Last_Valid_Bid, Q_Last_Valid_Ask,
-                current_ema, gamma_last, Q_hat_Mid_prev
+                current_ema, gamma_last, Q_hat_Mid_prev,
+                ema_t_minus_1=EMA_prev, is_restart=is_start
             )
             result_df.at[idx, 'Q_Last_Valid_Is_Outlier'] = is_outlier_last
             result_df.at[idx, 'Q_Last_Valid_Outlier_Reason'] = reason_last
@@ -561,7 +547,8 @@ def add_ema_and_outlier_detection(df, term_name):
             # 判定 Q_Min_Valid 是否為異常值
             is_outlier_min, reason_min, cond_1_min, cond_2_min, cond_3_min, cond_4_min, cond_5_min, cond_6_min = check_outlier(
                 Q_Min_Valid_Spread, Q_Min_Valid_Bid, Q_Min_Valid_Ask,
-                current_ema, gamma_min, Q_hat_Mid_prev
+                current_ema, gamma_min, Q_hat_Mid_prev,
+                ema_t_minus_1=EMA_prev, is_restart=is_start
             )
             result_df.at[idx, 'Q_Min_Valid_Is_Outlier'] = is_outlier_min
             result_df.at[idx, 'Q_Min_Valid_Outlier_Reason'] = reason_min
@@ -628,6 +615,7 @@ def add_ema_and_outlier_detection(df, term_name):
             Q_hat_Bid_prev = Q_hat_Bid
             Q_hat_Ask_prev = Q_hat_Ask
             Q_hat_Mid_prev = Q_hat_Mid
+            EMA_prev = current_ema
     
     return result_df
 
@@ -769,6 +757,52 @@ def convert_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4, c
         return "-"
 
 
+def convert_min_outlier_to_prod_format(is_outlier, cond_1, cond_2, cond_3, cond_4, cond_5, cond_6, min_sysID, last_sysID):
+    """
+    將 Q_Min_Valid 異常值標記轉換為 PROD 格式
+    
+    【轉換規則】
+    1. 無資料 (is_outlier is None) → "-"
+    2. 是異常值 (is_outlier is True) → "V"
+    3. 非異常值 (is_outlier is False):
+       - 若 min_sysID == last_sysID → "-" (與 Q_Last 相同且有效，不重複報告)
+       - 若 min_sysID != last_sysID → 輸出符合的條件編號 (1~4)
+       - 注意：Q_Min 不輸出 Exception 代碼 (5, 6)
+    """
+    # 無資料
+    if is_outlier is None or pd.isna(is_outlier):
+        return "-"
+    
+    # 是異常值 → "V" (即使 SysID 相同，若是異常值仍需標記)
+    if is_outlier == True:
+        return "V"
+    
+    # 非異常值
+    # 檢查 SysID 是否相同
+    try:
+        min_id = int(float(min_sysID)) if pd.notna(min_sysID) else 0
+        last_id = int(float(last_sysID)) if pd.notna(last_sysID) else 0
+    except:
+        min_id = str(min_sysID)
+        last_id = str(last_sysID)
+        
+    if min_id == last_id and min_id != 0:
+        return "-"
+        
+    # 輸出條件編號 (排除 5, 6)
+    passed_conds = []
+    if cond_1: passed_conds.append("1")
+    if cond_2: passed_conds.append("2")
+    if cond_3: passed_conds.append("3")
+    if cond_4: passed_conds.append("4")
+    # cond_5, cond_6 ignored for Min_Outlier
+    
+    if passed_conds:
+        return ",".join(passed_conds)
+    else:
+        return "-"
+
+
 def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
     """
     將計算結果轉換為 PROD 格式
@@ -804,14 +838,16 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
         ), axis=1
     )
     call_df['c.min_outlier'] = call_df.apply(
-        lambda row: convert_outlier_to_prod_format(
+        lambda row: convert_min_outlier_to_prod_format(
             row.get('Q_Min_Valid_Is_Outlier'),
             row.get('Q_Min_Valid_Cond_1'),
             row.get('Q_Min_Valid_Cond_2'),
             row.get('Q_Min_Valid_Cond_3'),
             row.get('Q_Min_Valid_Cond_4'),
             row.get('Q_Min_Valid_Cond_5'),
-            row.get('Q_Min_Valid_Cond_6')
+            row.get('Q_Min_Valid_Cond_6'),
+            row.get('Q_min_SysID'),
+            row.get('Q_last_SysID')
         ), axis=1
     )
     
@@ -828,14 +864,16 @@ def convert_to_prod_format(df, snapshot_sysid_col='Snapshot_SysID'):
         ), axis=1
     )
     put_df['p.min_outlier'] = put_df.apply(
-        lambda row: convert_outlier_to_prod_format(
+        lambda row: convert_min_outlier_to_prod_format(
             row.get('Q_Min_Valid_Is_Outlier'),
             row.get('Q_Min_Valid_Cond_1'),
             row.get('Q_Min_Valid_Cond_2'),
             row.get('Q_Min_Valid_Cond_3'),
             row.get('Q_Min_Valid_Cond_4'),
             row.get('Q_Min_Valid_Cond_5'),
-            row.get('Q_Min_Valid_Cond_6')
+            row.get('Q_Min_Valid_Cond_6'),
+            row.get('Q_min_SysID'),
+            row.get('Q_last_SysID')
         ), axis=1
     )
     

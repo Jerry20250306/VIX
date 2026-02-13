@@ -36,7 +36,7 @@ def run_command(cmd, desc):
 def verify_date_full(date_str):
     """呼叫 verify_full_day.py 進行全天驗證"""
     # verify_full_day.py 一次驗證 Near 和 Next
-    cmd = f"python validation/verify_full_day.py {date_str}"
+    cmd = f"python -u validation/verify_full_day.py {date_str}"
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 驗證 {date_str} (Near & Next)...")
     
     try:
@@ -92,13 +92,13 @@ def main():
         success = True
         
         # 1. 執行 Step 0 & 1 (Near + Next)
-        cmd_step0 = f"python step0_valid_quotes.py ALL {date_str}"
+        cmd_step0 = f"python -u step0_valid_quotes.py ALL {date_str}"
         if not run_command(cmd_step0, f"Step 0: 有效報價篩選 ({date_str})"):
             success = False
         
         # 2. 執行 Step 2 (EMA Calculation)
         if success:
-            cmd_step2 = f"python step0_2_ema_calculation.py {date_str}"
+            cmd_step2 = f"python -u step0_2_ema_calculation.py {date_str}"
             # 注意: 如果你的 script 支援參數，可能需要調整
             if not run_command(cmd_step2, f"Step 2: EMA 計算 ({date_str})"):
                 success = False
