@@ -104,9 +104,22 @@ def main():
         print(f"總差異筆數: {len(diff_df)}")
     else:
         print("\n恭喜！未發現任何差異。")
+        
+        # 列出已驗證的欄位
+        print("\n[已驗證欄位清單]")
+        # 不用硬編碼，從 verify_term_detailed 的 checks 列表獲取會更好，
+        # 但這裡 checks 是定義在 verify_term_detailed 內部的局部變數，
+        # 為了簡單起見，我們在此處列出主要的驗證項目
+        print("1. EMA (指數移動平均)")
+        print("2. Gamma (寬容度係數)")
+        print("3. Q_hat_Bid/Ask (最終買賣價)")
+        print("4. Q_Last_Bid/Ask (最近有效買賣價)")
+        print("5. Min_Bid/Ask (最小價差買賣價)")
+        # print("6. (已略過) Outlier 異常值標記")
+
         # 產生空檔案以示完成
         pd.DataFrame(columns=['Date', 'Time', 'Term', 'Strike', 'CP', 'Column', 'Ours', 'PROD', 'SysID', 'Prev_SysID']).to_csv(output_file, index=False, encoding='utf-8-sig')
-        print(f"已建立空報告: {output_file}")
+        print(f"\n已建立空報告: {output_file}")
 
 def verify_term_detailed(prod_df, calc_df, term_name, target_date):
     """執行詳細比對並回傳差異列表"""

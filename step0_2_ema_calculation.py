@@ -673,21 +673,21 @@ def main(target_date=None):
     save_prod_format(next_with_ema, next_output, snapshot_sysid_col='Snapshot_SysID', date_val=final_date)
     
     # 列印統計資訊
-    print(f"\n" + "=" * 60)
-    print("統計資訊")
-    print("=" * 60)
-    
-    print(f"\n【Near Term】")
-    print(f"  Q_Last_Valid 異常值: {near_with_ema['Q_Last_Valid_Is_Outlier'].sum()} / {len(near_with_ema)}")
-    print(f"  Q_Min_Valid 異常值:  {near_with_ema['Q_Min_Valid_Is_Outlier'].sum()} / {len(near_with_ema)}")
-    print(f"  Q_hat 來源分布:")
-    print(near_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
-    
-    print(f"\n【Next Term】")
-    print(f"  Q_Last_Valid 異常值: {next_with_ema['Q_Last_Valid_Is_Outlier'].sum()} / {len(next_with_ema)}")
-    print(f"  Q_Min_Valid 異常值:  {next_with_ema['Q_Min_Valid_Is_Outlier'].sum()} / {len(next_with_ema)}")
-    print(f"  Q_hat 來源分布:")
-    print(next_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
+    # print(f"\n" + "=" * 60)
+    # print("統計資訊")
+    # print("=" * 60)
+    # 
+    # print(f"\n【Near Term】")
+    # print(f"  Q_Last_Valid 異常值: {near_with_ema['Q_Last_Valid_Is_Outlier'].sum()} / {len(near_with_ema)}")
+    # print(f"  Q_Min_Valid 異常值:  {near_with_ema['Q_Min_Valid_Is_Outlier'].sum()} / {len(near_with_ema)}")
+    # print(f"  Q_hat 來源分布:")
+    # print(near_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
+    # 
+    # print(f"\n【Next Term】")
+    # print(f"  Q_Last_Valid 異常值: {next_with_ema['Q_Last_Valid_Is_Outlier'].sum()} / {len(next_with_ema)}")
+    # print(f"  Q_Min_Valid 異常值:  {next_with_ema['Q_Min_Valid_Is_Outlier'].sum()} / {len(next_with_ema)}")
+    # print(f"  Q_hat 來源分布:")
+    # print(next_with_ema['Q_hat_Source'].value_counts().to_string(name=False))
     
     # 清理中間檔案 (Step 1 CSV)
     import os
