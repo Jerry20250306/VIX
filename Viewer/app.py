@@ -65,6 +65,37 @@ def get_diff(date):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/diff_full/<date>")
+def get_diff_full(date):
+    """取得完整計算資料（每筆含差異標記），用於差異清單頁底部的完整資料表"""
+    try:
+        term     = request.args.get("term", "Near")
+        page     = request.args.get("page", 1, type=int)
+        per_page = min(request.args.get("per_page", 200, type=int), 1000)
+        filter_cp     = request.args.get("cp")        # "Call" / "Put" / None
+        filter_strike = request.args.get("strike")    # "28000" / None
+        filter_time   = request.args.get("time_int")  # "84515" / None
+
+        # 嘗試載入差異 df，若不存在則傳 None（仍回傳完整資料，只是不標記差異）
+        try:
+            diff_df = diff_loader._load_df(date)
+        except FileNotFoundError:
+            diff_df = None
+
+        result = prod_loader.get_full_data(
+            date=date, term=term, page=page, per_page=per_page,
+            diff_df=diff_df,
+            filter_cp=filter_cp,
+            filter_strike=int(filter_strike) if filter_strike else None,
+            filter_time=int(filter_time) if filter_time else None,
+        )
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/prod_row")
 def get_prod_row():
     """取得 Ours vs PROD 的差異列細節"""

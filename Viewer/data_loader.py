@@ -4,6 +4,7 @@ import glob
 import re
 
 class DiffLoader:
+
     """讀取 validation_diff_*.csv，帶快取與分頁"""
     
     def __init__(self, output_dir):
@@ -41,8 +42,8 @@ class DiffLoader:
         self._cache[date] = df
         return df
     
-    # 驗證腳本 verify_full_day.py 中定義的所有比對欄位
-    ALL_COMPARED_COLUMNS = ['EMA', 'Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_Last_Bid', 'Q_Last_Ask', 'Last_Outlier']
+    # 驗證腳本 verify_full_day.py 中定義的所有比對欄位（Last_Outlier 目前未啟用驗證，故不列入）
+    ALL_COMPARED_COLUMNS = ['EMA', 'Gamma', 'Q_hat_Bid', 'Q_hat_Ask', 'Q_Last_Bid', 'Q_Last_Ask']
     
     def get_summary(self, date, prod_loader=None):
         """取得摘要統計，包含有差異和無差異的欄位"""
@@ -279,6 +280,98 @@ class ProdLoader:
             return prev
         except:
             return None
+
+    def get_full_data(self, date, term, page=1, per_page=200, diff_df=None,
+                      filter_cp=None, filter_strike=None, filter_time=None):
+        """取得完整計算資料（含差異標記），展開為 Call/Put Long format
+
+        diff_df: DiffLoader 載入的差異 DataFrame，用來標記哪些列有差，可為 None
+        回傳: {rows, total, total_pages, page}
+        """
+        path = os.path.join(self.output_dir, f"驗證{date}_{term}PROD.csv")
+        if not os.path.exists(path):
+            return {"rows": [], "total": 0, "total_pages": 0, "page": 1, "error": f"找不到 {path}"}
+
+        cache_key = f"full_{date}_{term}"
+        if cache_key not in self._cache:
+            df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
+            self._cache[cache_key] = df
+        df = self._cache[cache_key].copy()
+
+        # time_int 欄位（用於比對）
+        if "time_int" not in df.columns:
+            df["time_int"] = df["time"].astype(str).str.replace(":", "").apply(
+                lambda x: int(x) if x.replace(":", "").isdigit() else 0
+            )
+
+        # 展開成 Call / Put 兩列
+        col_map_c = {
+            "c.ema": "EMA", "c.gamma": "Gamma",
+            "c.bid": "Q_hat_Bid", "c.ask": "Q_hat_Ask",
+            "c.last_bid": "Q_Last_Bid", "c.last_ask": "Q_Last_Ask",
+            "c.min_bid": "Min_Bid", "c.min_ask": "Min_Ask",
+        }
+        col_map_p = {
+            "p.ema": "EMA", "p.gamma": "Gamma",
+            "p.bid": "Q_hat_Bid", "p.ask": "Q_hat_Ask",
+            "p.last_bid": "Q_Last_Bid", "p.last_ask": "Q_Last_Ask",
+            "p.min_bid": "Min_Bid", "p.min_ask": "Min_Ask",
+        }
+
+        def make_side(side_map, cp_label):
+            cols_needed = ["time_int", "time", "strike"] + [c for c in side_map if c in df.columns]
+            side = df[cols_needed].copy()
+            side = side.rename(columns=side_map)
+            side["CP"] = cp_label
+            side["Term"] = term
+            return side
+
+        long_df = pd.concat([make_side(col_map_c, "Call"), make_side(col_map_p, "Put")], ignore_index=True)
+        long_df["strike"] = pd.to_numeric(long_df["strike"], errors="coerce").fillna(0).astype(int)
+
+        # 篩選
+        if filter_cp and filter_cp != "all":
+            long_df = long_df[long_df["CP"] == filter_cp]
+        if filter_strike:
+            long_df = long_df[long_df["strike"] == int(filter_strike)]
+        if filter_time:
+            long_df = long_df[long_df["time_int"] == int(filter_time)]
+
+        # 標記是否有差異
+        long_df["has_diff"] = False
+        long_df["diff_cols"] = ""
+        if diff_df is not None and not diff_df.empty:
+            term_diffs = diff_df[diff_df["Term"].astype(str) == term].copy()
+            if not term_diffs.empty:
+                term_diffs["Time"] = pd.to_numeric(term_diffs["Time"], errors="coerce").fillna(0).astype(int)
+                term_diffs["Strike"] = pd.to_numeric(term_diffs["Strike"], errors="coerce").fillna(0).astype(int)
+                diff_map = term_diffs.groupby(["Time", "Strike", "CP"])["Column"].apply(
+                    lambda x: ",".join(x)
+                ).to_dict()
+                def _mark(row):
+                    key = (int(row["time_int"]), int(row["strike"]), row["CP"])
+                    return diff_map.get(key, "")
+                long_df["diff_cols"] = long_df.apply(_mark, axis=1)
+                long_df["has_diff"] = long_df["diff_cols"] != ""
+
+        # 排序
+        long_df = long_df.sort_values(["time_int", "strike", "CP"]).reset_index(drop=True)
+
+        total = len(long_df)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * per_page
+        page_df = long_df.iloc[start:start + per_page].copy()
+
+        # NaN → None
+        page_df = page_df.astype(object).where(pd.notnull(page_df), None)
+
+        return {
+            "rows": page_df.to_dict(orient="records"),
+            "total": total,
+            "total_pages": total_pages,
+            "page": page,
+        }
 
 class SigmaDiffLoader:
     """讀取 PROD 的 sigma_YYYYMMDD.tsv 與我們產出的 my_sigma_YYYYMMDD.tsv 進行差異比對"""

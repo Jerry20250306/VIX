@@ -99,6 +99,10 @@ async function loadDiffData(date, page) {
         // 顯示面板
         document.getElementById("summary-panel").classList.remove("hidden");
         document.getElementById("diff-panel").classList.remove("hidden");
+        document.getElementById("full-data-panel").classList.remove("hidden");
+
+        // 自動載入完整資料表（預設 Near）
+        loadFullData(1);
 
     } catch (err) {
         console.error("載入差異失敗:", err);
@@ -106,6 +110,85 @@ async function loadDiffData(date, page) {
     } finally {
         loading.style.display = "none";
     }
+}
+
+// ===== 完整計算資料表 =====
+let fullDataPage = 1;
+
+async function loadFullData(page) {
+    if (!currentDate) return;
+    fullDataPage = page || fullDataPage;
+
+    const term = document.getElementById("full-term-filter").value;
+    const cp = document.getElementById("full-cp-filter").value;
+    const strike = document.getElementById("full-strike-filter").value;
+    const timeInt = document.getElementById("full-time-filter").value;
+
+    let url = `${API_BASE}/diff_full/${currentDate}?term=${term}&page=${fullDataPage}&per_page=200`;
+    if (cp) url += `&cp=${cp}`;
+    if (strike) url += `&strike=${strike}`;
+    if (timeInt) url += `&time_int=${timeInt}`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error) { console.error(data.error); return; }
+        renderFullTable(data.rows, (fullDataPage - 1) * 200);
+        renderFullPagination(data.page, data.total_pages, data.total);
+    } catch (err) {
+        console.error("載入完整資料失敗:", err);
+    }
+}
+
+function renderFullTable(rows, offset) {
+    const tbody = document.getElementById("full-data-tbody");
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="14" style="text-align:center; color:#aaa; padding:20px;">無資料</td></tr>';
+        return;
+    }
+
+    const NUM_COLS = ["EMA", "Gamma", "Q_hat_Bid", "Q_hat_Ask", "Q_Last_Bid", "Q_Last_Ask", "Min_Bid", "Min_Ask"];
+
+    tbody.innerHTML = rows.map((row, i) => {
+        const hasDiff = row.has_diff;
+        const rowStyle = hasDiff ? 'background-color:#fff5f5;' : '';
+        const timeStr = String(row.time_int || row.time || "").padStart(6, "0");
+
+        const numCells = NUM_COLS.map(col => {
+            const val = row[col];
+            const isDiffCol = hasDiff && row.diff_cols && row.diff_cols.split(",").includes(col);
+            const cellStyle = isDiffCol ? 'color:#d9534f; font-weight:bold;' : '';
+            const display = val !== null && val !== undefined ? Number(val).toFixed(4) : '-';
+            return `<td style="${cellStyle}">${display}</td>`;
+        }).join("");
+
+        const diffBadge = hasDiff
+            ? `<span style="background:#d9534f;color:white;padding:1px 6px;border-radius:8px;font-size:11px;">${row.diff_cols}</span>`
+            : '<span style="color:#5cb85c;">✓</span>';
+
+        return `<tr style="${rowStyle}">
+            <td>${offset + i + 1}</td>
+            <td>${timeStr}</td>
+            <td>${row.Term || ''}</td>
+            <td>${row.strike || ''}</td>
+            <td>${row.CP || ''}</td>
+            ${numCells}
+            <td>${diffBadge}</td>
+        </tr>`;
+    }).join("");
+}
+
+function renderFullPagination(page, totalPages, total) {
+    const container = document.getElementById("full-data-pagination");
+    if (totalPages <= 1) { container.innerHTML = `<span>共 ${total.toLocaleString()} 筆</span>`; return; }
+
+    container.innerHTML = `
+        <button onclick="loadFullData(1)" ${page === 1 ? 'disabled' : ''}>&#171;</button>
+        <button onclick="loadFullData(${page - 1})" ${page === 1 ? 'disabled' : ''}>&lt;</button>
+        <span>第 ${page} / ${totalPages} 頁　共 ${total.toLocaleString()} 筆</span>
+        <button onclick="loadFullData(${page + 1})" ${page === totalPages ? 'disabled' : ''}>&gt;</button>
+        <button onclick="loadFullData(${totalPages})" ${page === totalPages ? 'disabled' : ''}>&#187;</button>
+    `;
 }
 
 function updateColumnFilterOptions(data) {

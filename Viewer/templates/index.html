@@ -133,6 +133,60 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- ===== 完整計算資料表 ===== -->
+                <section id="full-data-panel" class="panel hidden">
+                    <header
+                        style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <h2 style="margin:0;">完整計算資料（含差異標記）</h2>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                            <label for="full-term-filter">Term：</label>
+                            <select id="full-term-filter" onchange="loadFullData(1)" style="padding:4px 8px;">
+                                <option value="Near">Near</option>
+                                <option value="Next">Next</option>
+                            </select>
+                            <label for="full-cp-filter">CP：</label>
+                            <select id="full-cp-filter" onchange="loadFullData(1)" style="padding:4px 8px;">
+                                <option value="">全部</option>
+                                <option value="Call">Call</option>
+                                <option value="Put">Put</option>
+                            </select>
+                            <label>履約價：</label>
+                            <input id="full-strike-filter" type="number" placeholder="全部"
+                                style="width:90px; padding:4px 6px;">
+                            <label>時間(HMMSS)：</label>
+                            <input id="full-time-filter" type="number" placeholder="全部"
+                                style="width:110px; padding:4px 6px;">
+                            <button onclick="loadFullData(1)"
+                                style="padding:5px 14px; background:#0d6efd; color:white; border:none; border-radius:4px; cursor:pointer;">🔍
+                                查詢</button>
+                        </div>
+                    </header>
+                    <div class="table-container" style="margin-top:10px; overflow-x:auto;">
+                        <table id="full-data-table" style="font-size:12px;">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>時間</th>
+                                    <th>Term</th>
+                                    <th>履約價</th>
+                                    <th>CP</th>
+                                    <th>EMA</th>
+                                    <th>Gamma</th>
+                                    <th>Q_hat_Bid</th>
+                                    <th>Q_hat_Ask</th>
+                                    <th>Q_Last_Bid</th>
+                                    <th>Q_Last_Ask</th>
+                                    <th>Min_Bid</th>
+                                    <th>Min_Ask</th>
+                                    <th>差異欄位</th>
+                                </tr>
+                            </thead>
+                            <tbody id="full-data-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="full-data-pagination"></div>
+                </section>
             </div>
 
             <!-- ===== 自由探勘模式 ===== -->
