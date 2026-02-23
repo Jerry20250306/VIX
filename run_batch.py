@@ -21,13 +21,20 @@ import argparse
 from datetime import datetime, timedelta
 import pandas as pd
 
+# 強制將標準輸出切換為 utf-8，避免 Windows 預設 CP950 導致中文亂碼
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 def run_command(cmd, desc):
     """執行外部指令並檢查回傳值"""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {desc}...")
     try:
         # 使用 subprocess.run capture_output=False 讓輸出直接顯示在螢幕上
         # check=True 會在 exit code != 0 時拋出 CalledProcessError
-        subprocess.run(cmd, shell=True, check=True)
+        env = os.environ.copy()
+        env['PYTHONUTF8'] = '1'
+        subprocess.run(cmd, shell=True, check=True, env=env)
         return True
     except subprocess.CalledProcessError as e:
         print(f"[Error] {desc} 失敗 (Exit Code: {e.returncode})")
@@ -40,7 +47,10 @@ def verify_date_full(date_str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 驗證 {date_str} (Near & Next)...")
     
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # 強制指定 encoding='utf-8'，避免 Windows 預設編碼 (如 CP950) 解析錯誤
+        env = os.environ.copy()
+        env['PYTHONUTF8'] = '1'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='utf-8', env=env)
         output = result.stdout
         
         # 檢查關鍵字

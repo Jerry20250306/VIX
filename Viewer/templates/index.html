@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIX 驗證結果瀏覽器</title>
+    <title>VIX 觀測站</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 
 <body>
     <div class="container">
         <header>
-            <h1>VIX 驗證結果瀏覽器</h1>
+            <h1>VIX 觀測站</h1>
             <div class="controls">
                 <label for="date-selector">選擇日期：</label>
                 <select id="date-selector">
@@ -21,100 +21,280 @@
             </div>
         </header>
 
+        <!-- 頁籤導覽 -->
+        <div class="tab-bar" style="display: none;">
+            <button id="tab-diff" class="tab active" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
+            <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 step0 行情查詢模式</button>
+            <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 step1 Sigma & VIX 總表</button>
+        </div>
+
         <main>
-            <!-- 摘要區塊 (未來實作) -->
-            <section id="summary-panel" class="panel hidden">
-                <h2>驗證摘要</h2>
-                <div id="summary-content"></div>
-            </section>
+            <!-- ===== 歡迎提示區塊 ===== -->
+            <div id="welcome-panel" class="panel empty-state"
+                style="text-align: center; padding: 80px 20px; border: 2px dashed #dee2e6; background-color: #f8f9fa;">
+                <div style="font-size: 64px; margin-bottom: 20px; opacity: 0.8;">📊</div>
+                <h2 style="color: #2c3e50; margin-bottom: 16px; font-weight: 600;">歡迎來到 VIX 驗證觀測站</h2>
+                <p style="color: #6c757d; font-size: 16px; margin-top: 0; line-height: 1.6;">
+                    請從右上方的 <strong>「選擇日期」</strong> 下拉選單中挑選一天，<br>
+                    即可開始檢視 <strong>差異清單</strong>、<strong>自由行情探勘</strong> 以及 <strong>Sigma & VIX 總表</strong>。
+                </p>
+                <p style="color: #adb5bd; font-size: 14px; margin-top: 24px;">
+                    (若選單內無資料，請先在此環境執行對應的驗證腳本以產生 output 檔案)
+                </p>
+            </div>
 
-            <!-- 差異列表 (未來實作) -->
-            <section id="diff-panel" class="panel hidden">
-                <header style="display: flex; justify-content: space-between; align-items: center;">
-                    <h2>差異列表</h2>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <label for="column-filter">篩選欄位:</label>
-                        <select id="column-filter" style="padding: 5px;">
-                            <option value="all">全部</option>
-                        </select>
-                    </div>
-                </header>
-                <div class="table-container">
-                    <table id="diff-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>時間</th>
-                                <th>Term</th>
-                                <th>履約價</th>
-                                <th>CP</th>
-                                <th>欄位</th>
-                                <th>Ours</th>
-                                <th>PROD</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Javascript 動態填入 -->
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+            <!-- ===== 差異清單模式 ===== -->
+            <div id="mode-diff" style="display: none;">
+                <!-- 摘要區塊 -->
+                <section id="summary-panel" class="panel hidden">
+                    <h2>驗證摘要</h2>
+                    <div id="summary-content"></div>
+                </section>
 
-            <!-- 明細區塊 (未來實作) -->
-            <section id="detail-panel" class="panel hidden">
-                <h2>詳細資料比對</h2>
-                <div id="compare-container"></div>
+                <!-- 差異列表 -->
+                <section id="diff-panel" class="panel hidden">
+                    <header style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2>差異列表</h2>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label for="column-filter">篩選欄位:</label>
+                            <select id="column-filter" style="padding: 5px;">
+                                <option value="all">全部</option>
+                            </select>
+                        </div>
+                    </header>
+                    <div class="table-container">
+                        <table id="diff-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>時間</th>
+                                    <th>Term</th>
+                                    <th>履約價</th>
+                                    <th>CP</th>
+                                    <th>欄位</th>
+                                    <th>Ours</th>
+                                    <th>PROD</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Javascript 動態填入 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
-                <h3>原始 Tick 資料追踪</h3>
-                <!-- 手動 SysID 範圍查詢 -->
-                <div id="manual-tick-query"
-                    style="display:none; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:12px; margin-bottom:12px;">
-                    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
-                        <div>
-                            <label style="font-size:12px; color:#666;">當前區間 SysID 起</label><br>
-                            <input type="number" id="manual-curr-start" style="width:120px; padding:4px 6px;"
-                                placeholder="起 (exclusive)">
-                        </div>
-                        <div>
-                            <label style="font-size:12px; color:#666;">當前區間 SysID 迄</label><br>
-                            <input type="number" id="manual-curr-end" style="width:120px; padding:4px 6px;"
-                                placeholder="迄 (inclusive)">
-                        </div>
-                        <div style="border-left:1px solid #ccc; padding-left:16px;">
-                            <label style="font-size:12px; color:#666;">前一區間 SysID 起</label><br>
-                            <input type="number" id="manual-prev-start" style="width:120px; padding:4px 6px;"
-                                placeholder="起 (exclusive)">
-                        </div>
-                        <div>
-                            <label style="font-size:12px; color:#666;">前一區間 SysID 迄</label><br>
-                            <input type="number" id="manual-prev-end" style="width:120px; padding:4px 6px;"
-                                placeholder="迄 (inclusive)">
-                        </div>
-                        <div>
-                            <button onclick="reloadTicksManual()"
-                                style="padding:6px 16px; background:#0d6efd; color:white; border:none; border-radius:4px; cursor:pointer;">🔍
-                                查詢</button>
-                            <button onclick="resetTickInputs()"
-                                style="padding:6px 12px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer; margin-left:4px;">重置</button>
+                <!-- 明細區塊 -->
+                <section id="detail-panel" class="panel hidden">
+                    <h2>詳細資料比對</h2>
+                    <div id="compare-container"></div>
+
+                    <h3>原始 Tick 資料追踪</h3>
+                    <div id="manual-tick-query"
+                        style="display:none; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:12px; margin-bottom:12px;">
+                        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+                            <div>
+                                <label style="font-size:12px; color:#666;">當前區間 SysID 起</label><br>
+                                <input type="number" id="manual-curr-start" style="width:120px; padding:4px 6px;"
+                                    placeholder="起 (exclusive)">
+                            </div>
+                            <div>
+                                <label style="font-size:12px; color:#666;">當前區間 SysID 迄</label><br>
+                                <input type="number" id="manual-curr-end" style="width:120px; padding:4px 6px;"
+                                    placeholder="迄 (inclusive)">
+                            </div>
+                            <div style="border-left:1px solid #ccc; padding-left:16px;">
+                                <label style="font-size:12px; color:#666;">前一區間 SysID 起</label><br>
+                                <input type="number" id="manual-prev-start" style="width:120px; padding:4px 6px;"
+                                    placeholder="起 (exclusive)">
+                            </div>
+                            <div>
+                                <label style="font-size:12px; color:#666;">前一區間 SysID 迄</label><br>
+                                <input type="number" id="manual-prev-end" style="width:120px; padding:4px 6px;"
+                                    placeholder="迄 (inclusive)">
+                            </div>
+                            <div>
+                                <button onclick="reloadTicksManual()"
+                                    style="padding:6px 16px; background:#0d6efd; color:white; border:none; border-radius:4px; cursor:pointer;">🔍
+                                    查詢</button>
+                                <button onclick="resetTickInputs()"
+                                    style="padding:6px 12px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer; margin-left:4px;">重置</button>
+                            </div>
                         </div>
                     </div>
+                    <div class="ticks-wrapper">
+                        <div class="tick-box">
+                            <h4>當前區間 (SysID: <span id="curr-sysid-range"></span>)</h4>
+                            <div id="curr-ticks"></div>
+                        </div>
+                        <div class="tick-box">
+                            <h4>前一區間 (SysID: <span id="prev-sysid-range"></span>)</h4>
+                            <div id="prev-ticks"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ===== 自由探勘模式 ===== -->
+            <div id="mode-explore" style="display:none;">
+                <!-- 搜尋控制列 -->
+                <section class="panel explore-search-bar">
+                    <div class="explore-search-row">
+                        <div class="search-group">
+                            <label>Term</label>
+                            <select id="ex-term" onchange="exploreLoadOptions()">
+                                <option value="Near">Near</option>
+                                <option value="Next">Next</option>
+                            </select>
+                        </div>
+                        <div class="search-group">
+                            <label>履約價</label>
+                            <select id="ex-strike">
+                                <option value="">-- 請先選 Term --</option>
+                            </select>
+                        </div>
+                        <div class="search-group">
+                            <label>CP</label>
+                            <select id="ex-cp">
+                                <option value="Call">Call</option>
+                                <option value="Put">Put</option>
+                            </select>
+                        </div>
+                        <div class="search-group">
+                            <label>時間</label>
+                            <select id="ex-time">
+                                <option value="">-- 請先選 Term --</option>
+                            </select>
+                        </div>
+                        <div class="search-group search-btn-group">
+                            <button id="ex-btn-prev15" class="btn-secondary" onclick="exploreMoveTime(-15)"
+                                title="前一個時間點 (-15s)">◀ -15s</button>
+                            <button id="ex-btn-search" class="btn-primary" onclick="exploreSearch()">🔍 搜尋</button>
+                            <button id="ex-btn-next15" class="btn-secondary" onclick="exploreMoveTime(+15)"
+                                title="後一個時間點 (+15s)">+15s ▶</button>
+                        </div>
+                    </div>
+                    <div class="explore-search-row explore-diff-nav">
+                        <span id="ex-current-label" style="color:#888; font-size:13px;"></span>
+                        <button class="btn-nav" onclick="exploreJumpDiff('prev')">⏮ 跳至上一個差異</button>
+                        <button class="btn-nav" onclick="exploreJumpDiff('next')">跳至下一個差異 ⏭</button>
+                    </div>
+                </section>
+
+                <!-- 雙欄主體 -->
+                <div class="explorer-layout">
+                    <!-- 左側：算式還原 + 數值比對 -->
+                    <section id="explore-analysis" class="panel explore-panel-left">
+                        <div id="ex-analysis-placeholder" class="ex-placeholder">
+                            <p>👈 請在上方輸入條件並執行搜尋</p>
+                        </div>
+
+                        <!-- 算式還原卡片 -->
+                        <div id="ex-calc-trace" style="display:none;">
+                            <h3 class="ex-section-title">📐 算式還原</h3>
+                            <div id="ex-trace-content" class="calc-trace"></div>
+                        </div>
+
+                        <!-- Ours vs PROD 比對 -->
+                        <div id="ex-compare-section" style="display:none; margin-top:16px;">
+                            <h3 class="ex-section-title">🔢 Ours vs PROD</h3>
+                            <div id="ex-compare-content"></div>
+                        </div>
+                    </section>
+
+                    <!-- 右側：行情河流 -->
+                    <section id="explore-stream" class="panel explore-panel-right">
+                        <div class="stream-header">
+                            <h3 id="ex-stream-title">行情河流</h3>
+                            <div id="ex-stream-meta" style="font-size:12px; color:#888;"></div>
+                        </div>
+
+                        <button id="ex-btn-load-earlier" class="btn-load-more" onclick="exploreLoadMore('earlier')"
+                            style="display:none;">
+                            ⬆ 載入更早
+                        </button>
+
+                        <div id="ex-stream-placeholder" class="ex-placeholder">
+                            <p>🎯 執行搜尋後，此處將顯示連續行情序列</p>
+                        </div>
+
+                        <!-- 固定欄位標題 (sticky header) -->
+                        <div id="ex-stream-header" class="tick-stream-header" style="display:none;">
+                            <span class="t-time">時間</span>
+                            <span class="t-bid">Bid</span>
+                            <span class="t-ask">Ask</span>
+                            <span class="t-spread">Spread</span>
+                            <span class="t-seqno">SeqNo</span>
+                            <span class="t-badges" style="text-align:right;">標記</span>
+                        </div>
+
+                        <div id="ex-tick-stream" class="tick-stream-container" style="display:none;"></div>
+
+                        <button id="ex-btn-load-later" class="btn-load-more" onclick="exploreLoadMore('later')"
+                            style="display:none;">
+                            ⬇ 載入更晚
+                        </button>
+                    </section>
                 </div>
-                <div class="ticks-wrapper">
-                    <div class="tick-box">
-                        <h4>當前區間 (SysID: <span id="curr-sysid-range"></span>)</h4>
-                        <div id="curr-ticks"></div>
+            </div>
+
+            <!-- ===== Sigma & VIX 差異總表模式 ===== -->
+            <div id="mode-sigma" style="display:none;">
+                <section class="panel">
+                    <header
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h2>Sigma & VIX 計算比對</h2>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label><input type="checkbox" id="sigma-diff-only" onchange="renderSigmaTable()">
+                                只顯示有差異的列</label>
+                            <button class="btn-primary" onclick="loadSigmaDiff()">重新載入比對</button>
+                        </div>
+                    </header>
+                    <div id="sigma-error" style="color: red; display: none; margin-bottom: 10px;"></div>
+                    <div class="table-container">
+                        <table id="sigma-table" style="width:100%; text-align:center; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background-color: #f1f3f5;">
+                                    <th rowspan="2" style="border: 1px solid #ccc; padding: 5px;">Time</th>
+                                    <th colspan="3" style="border: 1px solid #ccc; padding: 5px;">Near Sigma²</th>
+                                    <th colspan="3" style="border: 1px solid #ccc; padding: 5px;">Next Sigma²</th>
+                                    <th colspan="3" style="border: 1px solid #ccc; padding: 5px;">ORI VIX</th>
+                                    <th colspan="3" style="border: 1px solid #ccc; padding: 5px;">VIX</th>
+                                    <th rowspan="2" style="border: 1px solid #ccc; padding: 5px;">Near Type<br>(P vs M)
+                                    </th>
+                                    <th rowspan="2" style="border: 1px solid #ccc; padding: 5px;">Next Type<br>(P vs M)
+                                    </th>
+                                </tr>
+                                <tr style="background-color: #f8f9fa;">
+                                    <td style="border: 1px solid #ccc;">PROD</td>
+                                    <td style="border: 1px solid #ccc;">My</td>
+                                    <td style="border: 1px solid #ccc; color: #d63384;">Diff</td>
+                                    <td style="border: 1px solid #ccc;">PROD</td>
+                                    <td style="border: 1px solid #ccc;">My</td>
+                                    <td style="border: 1px solid #ccc; color: #d63384;">Diff</td>
+                                    <td style="border: 1px solid #ccc;">PROD</td>
+                                    <td style="border: 1px solid #ccc;">My</td>
+                                    <td style="border: 1px solid #ccc; color: #d63384;">Diff</td>
+                                    <td style="border: 1px solid #ccc;">PROD</td>
+                                    <td style="border: 1px solid #ccc;">My</td>
+                                    <td style="border: 1px solid #ccc; color: #d63384;">Diff</td>
+                                </tr>
+                            </thead>
+                            <tbody id="sigma-tbody">
+                                <tr>
+                                    <td colspan="14">請選擇日期後載入</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="tick-box">
-                        <h4>前一區間 (SysID: <span id="prev-sysid-range"></span>)</h4>
-                        <div id="prev-ticks"></div>
-                    </div>
-                </div>
-            </section>
+                </section>
+            </div>
         </main>
     </div>
 
     <script src="/static/js/main.js"></script>
+    <script src="/static/js/explorer.js"></script>
+    <script src="/static/js/sigma.js"></script>
 </body>
 
 </html>

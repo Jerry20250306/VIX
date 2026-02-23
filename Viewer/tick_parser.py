@@ -94,15 +94,11 @@ class TickLoader:
             
             # 找檔名符合的 CSV
             tick_file = None
-            # 需搜尋 Call 或 Put 月份碼
-            codes_to_search = [CALL_MONTH_CODES[month], PUT_MONTH_CODES[month]]
-            
-            for code in codes_to_search:
-                pattern = os.path.join(tick_dir, f"*TXO{code}{year_digit}.csv")
-                files = glob.glob(pattern)
-                if files:
-                    tick_file = files[0]
-                    break
+            code = CALL_MONTH_CODES[month] if cp.capitalize() == "Call" else PUT_MONTH_CODES[month]
+            pattern = os.path.join(tick_dir, f"*TXO{code}{year_digit}.csv")
+            files = glob.glob(pattern)
+            if files:
+                tick_file = files[0]
             
             if not tick_file:
                 return {"error": f"找不到 Tick 檔 (TXO*{year_digit}.csv)", "prod_id": prod_id}
@@ -194,16 +190,227 @@ class TickLoader:
         # 例: 84500107000 → 8:45:00.107, 134500107000 → 13:45:00.107
         if len(t) >= 11:
             if len(t) == 11:
-                # H MM SS MMM 000
                 disp = f"{t[0:1]}:{t[1:3]}:{t[3:5]}.{t[5:8]}"
             else:
-                # HH MM SS MMM 000
                 disp = f"{t[0:2]}:{t[2:4]}:{t[4:6]}.{t[6:9]}"
         
+        bid = float(row[bid_col]) if bid_col and pd.notnull(row[bid_col]) else 0
+        ask = float(row[ask_col]) if ask_col and pd.notnull(row[ask_col]) else 0
         return {
             "time": t,
             "time_display": disp,
-            "bid": float(row[bid_col]) if bid_col and pd.notnull(row[bid_col]) else 0,
-            "ask": float(row[ask_col]) if ask_col and pd.notnull(row[ask_col]) else 0,
+            "bid": bid,
+            "ask": ask,
             "seqno": int(row[seq_col])
         }
+
+    # ===================================================================
+    # 連續河流查詢（探勘面板用）
+    # ===================================================================
+    # 有效報價的 Spread 上限（對應 step0_valid_quotes.py 的設定）
+    MAX_SPREAD = 24.0
+
+    def query_stream(self, date, term, strike, cp,
+                     sysid_map,
+                     center_sysid, num_intervals=2,
+                     prepend_sysid=None, append_sysid=None):
+        """連續河流查詢
+
+        參數:
+            sysid_map   : {time_int: snapshot_sysID} 字典（由 ProdLoader.build_sysid_map() 提供）
+            center_sysid: 目標 Snapshot 的 SysID
+            num_intervals: 在 center_sysid 左右各載入幾個區間
+            prepend_sysid: 指定更早的起始 SysID（用於「載入更早」擴充）
+            append_sysid : 指定更晚的結束 SysID（用於「載入更晚」擴充）
+
+        回傳:
+            {
+              "prod_id": "TXO22000X5",
+              "ticks": [
+                {"time": ..., "time_display": ..., "bid": ..., "ask": ...,
+                 "seqno": ..., "is_valid": bool, "tags": [], "error_codes": []},
+                ...
+              ],
+              "snapshots": [
+                {"time_int": 84515, "sysid": 18505},
+                ...
+              ],
+              "range": [min_sysid, max_sysid]
+            }
+        """
+        try:
+            tick_dir = self._find_tick_dir(date)
+            if not glob.glob(os.path.join(tick_dir, "*.csv")):
+                tick_dir = os.path.join(tick_dir, "temp")
+
+            month, year_digit = self._determine_month_and_year(date, term)
+            prod_id = self._build_prod_id(strike, cp, month, year_digit)
+
+            # 找 Tick 檔
+            tick_file = None
+            code = CALL_MONTH_CODES[month] if cp.capitalize() == "Call" else PUT_MONTH_CODES[month]
+            pattern = os.path.join(tick_dir, f"*TXO{code}{year_digit}.csv")
+            files = glob.glob(pattern)
+            if files:
+                tick_file = files[0]
+
+            if not tick_file:
+                return {"error": f"找不到 Tick 檔", "prod_id": prod_id,
+                        "ticks": [], "snapshots": [], "range": [0, 0]}
+
+            # 建立已排序的 Snapshot 清單（sysid 升序）
+            sorted_snaps = sorted(sysid_map.items(), key=lambda x: x[1])  # [(time_int, sysid), ...]
+            snap_sysids  = [s[1] for s in sorted_snaps]
+
+            # ---------------------------------------------------------------
+            # 動態 Anchor 定位：
+            #   - prepend_sysid → 找最接近的 snap 作為右邊界，往前擴 num_intervals 個區間
+            #   - append_sysid  → 找最接近的 snap 作為左邊界，往後擴 num_intervals 個區間
+            #   - 否則以 center_sysid 置中
+            # ---------------------------------------------------------------
+            if prepend_sysid is not None:
+                # 找不超過 prepend_sysid 的最後一個 snap 作為右邊界
+                anchor_idx = 0
+                for i, s in enumerate(snap_sysids):
+                    if s <= prepend_sysid:
+                        anchor_idx = i
+                    else:
+                        break
+                end_idx   = anchor_idx
+                start_idx = max(0, end_idx - num_intervals * 2)
+            elif append_sysid is not None:
+                # 找不小於 append_sysid 的第一個 snap 作為左邊界
+                anchor_idx = len(snap_sysids) - 1
+                for i, s in enumerate(snap_sysids):
+                    if s >= append_sysid:
+                        anchor_idx = i
+                        break
+                start_idx = anchor_idx
+                end_idx   = min(len(sorted_snaps) - 1, start_idx + num_intervals * 2)
+            else:
+                # 一般搜尋：以 center_sysid 置中
+                try:
+                    center_idx = snap_sysids.index(center_sysid)
+                except ValueError:
+                    center_idx = min(range(len(snap_sysids)),
+                                     key=lambda i: abs(snap_sysids[i] - center_sysid))
+                start_idx = max(0, center_idx - num_intervals)
+                end_idx   = min(len(sorted_snaps) - 1, center_idx + num_intervals)
+
+            # 本次視窗的實際 SysID 範圍（以 snap 邊界對齊）
+            range_start_sysid = (
+                sorted_snaps[start_idx - 1][1] if start_idx > 0 else 0
+            )
+            range_end_sysid = sorted_snaps[end_idx][1]
+
+            # 收集本次載入的 Snapshots（供前端插入金色分界線）
+            snapshots = [
+                {"time_int": t, "sysid": s}
+                for t, s in sorted_snaps[start_idx:end_idx + 1]
+            ]
+
+            # 區間陣列：[start_idx : end_idx+1]，每個 snap 是該 15s 區間的右邊界
+            interval_snaps = sorted_snaps[start_idx:end_idx + 1]
+
+            # 一次性讀入、公用檔案內所有 matched
+            all_matched = []
+            for chunk in pd.read_csv(tick_file, sep="\t", chunksize=100000,
+                                     encoding="utf-8", engine="c"):
+                chunk.columns = [c.strip() for c in chunk.columns]
+                id_col  = next((c for c in chunk.columns if 'prod_id' in c), None)
+                seq_col = next((c for c in chunk.columns if 'seqno' in c), None)
+                time_col= next((c for c in chunk.columns if 'time' in c and 'yymmdd' not in c), None)
+                bid_col = next((c for c in chunk.columns if 'buy_price' in c or 'best_bid' in c), None)
+                ask_col = next((c for c in chunk.columns if 'sell_price' in c or 'best_ask' in c), None)
+
+                if not (id_col and seq_col): continue
+
+                chunk[id_col] = chunk[id_col].astype(str).str.strip()
+                matched = chunk[chunk[id_col] == prod_id].copy()
+                if matched.empty: continue
+
+                matched[seq_col] = pd.to_numeric(matched[seq_col], errors='coerce')
+                # 只保留範圍內的資料
+                in_range = matched[
+                    (matched[seq_col] > range_start_sysid) &
+                    (matched[seq_col] <= range_end_sysid)
+                ].copy()
+
+                for _, row in in_range.iterrows():
+                    bid = float(row[bid_col]) if bid_col and pd.notnull(row[bid_col]) else 0.0
+                    ask = float(row[ask_col]) if ask_col and pd.notnull(row[ask_col]) else 0.0
+                    seqno = int(row[seq_col])
+                    t = str(row[time_col]).strip()
+
+                    # 結構化資料
+                    base = self._format_row(row, time_col, bid_col, ask_col, seq_col)
+                    base["interval_idx"] = self._find_interval(seqno, interval_snaps, range_start_sysid)
+                    all_matched.append(base)
+
+            all_matched.sort(key=lambda x: x["seqno"])
+
+            # 對每個區間標記 LAST / MIN
+            # 先按 interval_idx 分組
+            from collections import defaultdict
+            by_interval = defaultdict(list)
+            for tick in all_matched:
+                by_interval[tick["interval_idx"]].append(tick)
+
+            for iidx, ticks in by_interval.items():
+                # 判斷各筆 valid/invalid、錯誤碼
+                for tk in ticks:
+                    tk["is_valid"], tk["error_codes"] = self._check_valid(tk["bid"], tk["ask"])
+                    tk["tags"] = []
+
+                valid_ticks = [tk for tk in ticks if tk["is_valid"]]
+
+                # LAST = 這個區間內 seqno 最大的有效報價
+                if valid_ticks:
+                    last_tick = max(valid_ticks, key=lambda x: x["seqno"])
+                    last_tick["tags"].append("LAST")
+
+                    # MIN = spread 最小的有效報價
+                    min_tick = min(valid_ticks, key=lambda x: x["ask"] - x["bid"])
+                    min_tick["tags"].append("MIN")
+
+            # 剛再清除 interval_idx (UI 不需要)
+            for tk in all_matched:
+                tk.pop("interval_idx", None)
+
+            return {
+                "prod_id": prod_id,
+                "ticks": all_matched,
+                "snapshots": snapshots,
+                "range": [range_start_sysid, range_end_sysid]
+            }
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"error": str(e), "ticks": [], "snapshots": [], "range": [0, 0]}
+
+    def _find_interval(self, seqno, interval_snaps, range_start_sysid):
+        """回傳 seqno 屬於哪個區間索引
+        區間 0: (range_start_sysid, interval_snaps[0].sysid]
+        區間 1: (interval_snaps[0].sysid, interval_snaps[1].sysid]
+        以此類推
+        """
+        prev = range_start_sysid
+        for i, (t, s) in enumerate(interval_snaps):
+            if prev < seqno <= s:
+                return i
+            prev = s
+        return len(interval_snaps) - 1
+
+    def _check_valid(self, bid, ask):
+        """判斷一筆 Tick 是否有效，並回傳半、錯誤碼清單
+        E1: 報價為零 (Bid <= 0 或 Ask <= 0)
+        E2: Spread 超出上限
+        """
+        error_codes = []
+        if bid <= 0 or ask <= 0:
+            error_codes.append("E1")
+        if ask - bid > self.MAX_SPREAD:
+            error_codes.append("E2")
+        is_valid = len(error_codes) == 0
+        return is_valid, error_codes

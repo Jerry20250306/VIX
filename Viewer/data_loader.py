@@ -159,8 +159,6 @@ class ProdLoader:
         """取得 PROD 中特定 (time, strike) 的一列"""
         key = f"prod_{date}_{term}"
         if key not in self._cache:
-            # PROD 路徑: 資料來源/20251201/NearPROD_20251201.tsv
-            # 注意: term 可能是 "Near" 或 "Next"
             path = os.path.join(self.source_dir, date, f"{term}PROD_{date}.tsv")
             if os.path.exists(path):
                 self._cache[key] = pd.read_csv(path, sep="\t")
@@ -168,9 +166,169 @@ class ProdLoader:
                 return {}
         
         df = self._cache[key]
-        # PROD time 可能是 int (HMMSS)
-        # 確保型別一致
         row = df[(df["time"] == int(time_val)) & (df["strike"] == int(strike))]
         if row.empty:
             return {}
         return row.astype(object).where(pd.notnull(row), None).iloc[0].to_dict()
+
+    def build_sysid_map(self, date, term):
+        """從 PROD TSV 建立 Time→SysID 對照表，供探勘面板使用
+        回傳: {time_int: snapshot_sysID, ...} 例如 {84515: 18505, 84530: 18600}
+        """
+        cache_key = f"sysid_map_{date}_{term}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        path = os.path.join(self.source_dir, date, f"{term}PROD_{date}.tsv")
+        if not os.path.exists(path):
+            return {}
+
+        df = pd.read_csv(path, sep="\t")
+
+        # 取唯一的 (time, snapshot_sysID) 組合（每個時間點只有一個 SysID）
+        if "snapshot_sysID" not in df.columns:
+            return {}
+
+        # 只取首次出現（每個 time 的值是固定的）
+        time_sysid = df[["time", "snapshot_sysID"]].dropna().drop_duplicates(subset="time")
+        result = dict(zip(time_sysid["time"].astype(int), time_sysid["snapshot_sysID"].astype(int)))
+        self._cache[cache_key] = result
+        return result
+
+    def get_calc_trace(self, date, term, time_int, strike):
+        """取得 EMA 算式還原所需的完整中間參數
+        回傳 dict，包含 alpha、Q_hat、EMA_prev、計算結果與算式字串。
+        """
+        time_int = int(time_int)
+        strike = int(strike)
+
+        ours = self.get_ours_row(date, term, time_int, strike)
+        prod = self.get_prod_row(date, term, time_int, strike)
+
+        # 計算前一個時間點的 EMA（往前推 15 秒）
+        prev_time_int = self._prev_time(time_int)
+        ours_prev = self.get_ours_row(date, term, prev_time_int, strike) if prev_time_int else {}
+
+        def safe_float(d, key):
+            try:
+                v = d.get(key)
+                return float(v) if v is not None else None
+            except:
+                return None
+
+        trace = {
+            "time": time_int,
+            "strike": strike,
+            # --- Call 側 EMA ---
+            "c_q_hat":       safe_float(ours, "c.bid"),   # Q_hat = Q_hat_Bid (中點可能不同，暫用 bid)
+            "c_q_hat_bid":   safe_float(ours, "c.bid"),
+            "c_q_hat_ask":   safe_float(ours, "c.ask"),
+            "c_ema":         safe_float(ours, "c.ema"),
+            "c_ema_prod":    safe_float(prod, "c.ema"),
+            "c_ema_prev":    safe_float(ours_prev, "c.ema"),
+            "c_source":      ours.get("c.source"),
+            "c_last_bid":    safe_float(ours, "c.last_bid"),
+            "c_last_ask":    safe_float(ours, "c.last_ask"),
+            "c_min_bid":     safe_float(ours, "c.min_bid"),
+            "c_min_ask":     safe_float(ours, "c.min_ask"),
+            # --- Put 側 EMA ---
+            "p_q_hat":       safe_float(ours, "p.bid"),
+            "p_q_hat_bid":   safe_float(ours, "p.bid"),
+            "p_q_hat_ask":   safe_float(ours, "p.ask"),
+            "p_ema":         safe_float(ours, "p.ema"),
+            "p_ema_prod":    safe_float(prod, "p.ema"),
+            "p_ema_prev":    safe_float(ours_prev, "p.ema"),
+            "p_source":      ours.get("p.source"),
+            # --- 共用參數 ---
+            "alpha":         safe_float(ours, "alpha") or safe_float(prod, "alpha"),
+            "snapshot_sysID": safe_float(ours, "snapshot_sysID"),
+            "prev_time":     prev_time_int,
+        }
+
+        # 組合算式字串（以 Call 側為例）
+        a = trace["alpha"]
+        c_ema_prev = trace["c_ema_prev"]
+        c_q = trace["c_q_hat"]
+        if a is not None and c_ema_prev is not None and c_q is not None:
+            c_result = c_ema_prev * (1 - a) + c_q * a
+            trace["c_formula"] = (f"{c_ema_prev:.4f} × (1 - {a:.6f})"
+                                   f" + {c_q:.4f} × {a:.6f} = {c_result:.4f}")
+        else:
+            trace["c_formula"] = "（參數不足，無法還原）"
+
+        p_ema_prev = trace["p_ema_prev"]
+        p_q = trace["p_q_hat"]
+        if a is not None and p_ema_prev is not None and p_q is not None:
+            p_result = p_ema_prev * (1 - a) + p_q * a
+            trace["p_formula"] = (f"{p_ema_prev:.4f} × (1 - {a:.6f})"
+                                   f" + {p_q:.4f} × {a:.6f} = {p_result:.4f}")
+        else:
+            trace["p_formula"] = "（參數不足，無法還原）"
+
+        return trace
+
+    def _prev_time(self, time_int):
+        """回傳前一個 15 秒的 time_int（HMMSS / HHMMSS 格式）"""
+        try:
+            t = int(time_int)
+            s = str(t).zfill(6)  # 確保至少 6 碼
+            hh, mm, ss = int(s[:-4]), int(s[-4:-2]), int(s[-2:])
+            from datetime import datetime, timedelta
+            dt = datetime(2000, 1, 1, hh, mm, ss) - timedelta(seconds=15)
+            prev = dt.hour * 10000 + dt.minute * 100 + dt.second
+            return prev
+        except:
+            return None
+
+class SigmaDiffLoader:
+    """讀取 PROD 的 sigma_YYYYMMDD.tsv 與我們產出的 my_sigma_YYYYMMDD.tsv 進行差異比對"""
+    def __init__(self, prod_dir, my_dir):
+        self.prod_dir = prod_dir  # 資料來源目錄
+        self.my_dir = my_dir      # output 目錄
+        self._cache = {}
+
+    def get_diff(self, date):
+        if date in self._cache:
+            return self._cache[date]
+
+        # PROD 檔案預期在 資料來源/YYYYMMDD/sigma_YYYYMMDD.tsv
+        prod_path = os.path.join(self.prod_dir, date, f"sigma_{date}.tsv")
+        # 我們自算的檔案預期在 output/my_sigma_YYYYMMDD.tsv
+        my_path = os.path.join(self.my_dir, f"my_sigma_{date}.tsv")
+
+        if not os.path.exists(prod_path) or not os.path.exists(my_path):
+            return {"error": "缺少 PROD 或是 My 的 sigma 檔案", "rows": []}
+
+        df_prod = pd.read_csv(prod_path, sep="\t", dtype={"time": str})
+        df_my = pd.read_csv(my_path, sep="\t", dtype={"time": str})
+
+        # 確保 time 格式為 6 碼 (e.g. 084515)
+        df_prod["time"] = df_prod["time"].astype(str).str.zfill(6)
+        df_my["time"] = df_my["time"].astype(str).str.zfill(6)
+
+        # Merge
+        df = pd.merge(df_prod, df_my, on=["date", "time"], suffixes=("_prod", "_my"), how="outer")
+
+        # 計算數值差異
+        def calc_diff(col):
+            my_col = f"{col}_my"
+            prod_col = f"{col}_prod"
+            if my_col in df.columns and prod_col in df.columns:
+                df[f"{col}_diff"] = pd.to_numeric(df[my_col], errors='coerce') - pd.to_numeric(df[prod_col], errors='coerce')
+
+        calc_diff("nearSigma2")
+        calc_diff("nextSigma2")
+        calc_diff("vix")
+        calc_diff("ori_vix")
+
+        df = df.astype(object).where(pd.notnull(df), None)
+        
+        # 依照時間排序
+        df = df.sort_values(by="time").reset_index(drop=True)
+
+        result = {
+            "error": None,
+            "rows": df.to_dict(orient="records")
+        }
+        self._cache[date] = result
+        return result

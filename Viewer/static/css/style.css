@@ -1,3 +1,6 @@
+/* ===================================================
+   基礎 & 通用
+   =================================================== */
 body {
     font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
     background-color: #f5f5f5;
@@ -7,7 +10,7 @@ body {
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
     background: white;
     padding: 20px;
@@ -21,7 +24,7 @@ header {
     align-items: center;
     border-bottom: 2px solid #eee;
     padding-bottom: 20px;
-    margin-bottom: 20px;
+    margin-bottom: 0;
 }
 
 h1 {
@@ -31,7 +34,7 @@ h1 {
 }
 
 .panel {
-    margin-bottom: 30px;
+    margin-bottom: 20px;
     padding: 20px;
     border: 1px solid #eee;
     border-radius: 4px;
@@ -41,6 +44,9 @@ h1 {
     display: none;
 }
 
+/* ===================================================
+   差異列表 (舊有)
+   =================================================== */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -80,13 +86,11 @@ tr:hover {
 
 .compare-table tr.target-diff-row {
     background-color: #ffe6e6;
-    /* 紅色背景強調 */
     border: 2px solid #ffcccc;
 }
 
 .compare-table tr.diff-row {
     background-color: #fff5f5;
-    /* 淺紅色背景 */
 }
 
 .summary-box {
@@ -144,4 +148,474 @@ tr:hover {
 .pagination span {
     font-size: 13px;
     color: #555;
+}
+
+/* ===================================================
+   頁籤 (Tab Bar)
+   =================================================== */
+.tab-bar {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid #dee2e6;
+    margin: 16px 0 0 0;
+    padding: 0;
+}
+
+.tab {
+    padding: 10px 20px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: #f8f9fa;
+    color: #555;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+.tab.active {
+    background: #fff;
+    color: #2c3e50;
+    border-color: #dee2e6;
+    font-weight: bold;
+    margin-bottom: -2px;
+    padding-bottom: 12px;
+}
+
+/* ===================================================
+   探勘模式 - 搜尋列
+   =================================================== */
+.explore-search-bar {
+    padding: 14px 18px;
+    margin-top: 12px;
+}
+
+.explore-search-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 10px;
+}
+
+.explore-search-row:last-child {
+    margin-bottom: 0;
+}
+
+.search-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.search-group label {
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
+}
+
+.search-group input,
+.search-group select {
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.search-group input:focus,
+.search-group select:focus {
+    outline: none;
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.search-btn-group {
+    flex-direction: row !important;
+    align-items: flex-end !important;
+    gap: 6px !important;
+}
+
+.explore-diff-nav {
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+    margin-top: 2px;
+}
+
+/* ===================================================
+   按鈕通用
+   =================================================== */
+.btn-primary {
+    padding: 8px 18px;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.btn-primary:hover {
+    background: #0b5ed7;
+}
+
+.btn-secondary {
+    padding: 8px 12px;
+    background: #fff;
+    color: #555;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+    background: #f0f0f0;
+}
+
+.btn-nav {
+    padding: 6px 14px;
+    background: #6f42c1;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.btn-nav:hover {
+    background: #5a32a3;
+}
+
+.btn-load-more {
+    display: block;
+    width: 100%;
+    padding: 7px;
+    background: #f8f9fa;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #666;
+    margin: 4px 0;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.btn-load-more:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+/* ===================================================
+   探勘模式 - 雙欄佈局
+   =================================================== */
+.explorer-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-top: 8px;
+}
+
+.explore-panel-left {
+    flex: 0 0 36%;
+    min-width: 300px;
+    padding: 16px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.explore-panel-right {
+    flex: 1;
+    padding: 12px;
+}
+
+.ex-section-title {
+    margin: 0 0 10px 0;
+    font-size: 15px;
+    color: #2c3e50;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #eee;
+}
+
+.ex-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    color: #aaa;
+    font-size: 14px;
+    text-align: center;
+}
+
+/* ===================================================
+   算式還原卡片
+   =================================================== */
+.calc-trace {
+    background: #f8f9ff;
+    border: 1px solid #d0d8ff;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.calc-trace .trace-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.calc-trace .trace-label {
+    color: #888;
+    min-width: 90px;
+    font-size: 12px;
+}
+
+.calc-trace .trace-value {
+    font-weight: bold;
+    color: #2c3e50;
+    font-family: monospace;
+}
+
+.calc-trace .trace-formula {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-family: monospace;
+    font-size: 12px;
+    margin-top: 6px;
+    color: #1a6b3c;
+    word-break: break-all;
+}
+
+.calc-trace .trace-diff {
+    color: #d9534f;
+    font-weight: bold;
+}
+
+.calc-trace .trace-match {
+    color: #5cb85c;
+}
+
+/* ===================================================
+   行情河流 (Tick Stream)
+   =================================================== */
+.stream-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.stream-header h3 {
+    margin: 0;
+    font-size: 15px;
+    color: #2c3e50;
+}
+
+.tick-stream-container {
+    max-height: 65vh;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 0 0 4px 4px;
+    /* 上方是 header */
+    background: #fafafa;
+}
+
+/* 固定欄位標題列
+   注意：不加 gap，欄位寬度必須與 .tick-row 一致
+*/
+.tick-stream-header {
+    display: flex;
+    align-items: center;
+    padding: 5px 10px;
+    background: #2c3e50;
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    border: 1px solid #2c3e50;
+    border-radius: 4px 4px 0 0;
+    user-select: none;
+    letter-spacing: 0.3px;
+    box-sizing: border-box;
+}
+
+/* Header 與 tick-row 共用的欄位寬度定義 */
+.tick-stream-header .t-time,
+.tick-row .t-time {
+    flex: 0 0 100px;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.tick-stream-header .t-bid,
+.tick-row .t-bid {
+    flex: 0 0 70px;
+}
+
+.tick-stream-header .t-ask,
+.tick-row .t-ask {
+    flex: 0 0 70px;
+}
+
+.tick-stream-header .t-spread,
+.tick-row .t-spread {
+    flex: 0 0 65px;
+    font-size: 12px;
+}
+
+.tick-stream-header .t-seqno,
+.tick-row .t-seqno {
+    flex: 0 0 75px;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.tick-stream-header .t-badges,
+.tick-row .t-badges {
+    flex: 1;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+/* 分界線 (Snapshot Divider) */
+.snapshot-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: #fffbea;
+    border-left: 4px solid #f0ad4e;
+    border-top: 1px dashed #dee2e6;
+    border-bottom: 1px dashed #dee2e6;
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+}
+
+.snapshot-divider:hover {
+    background: #fff3cc;
+}
+
+.snapshot-divider.active-divider {
+    background: #fff0b3;
+    border-left-color: #d4830a;
+}
+
+.snapshot-divider .divider-time {
+    font-weight: bold;
+    font-size: 13px;
+    color: #856404;
+    min-width: 70px;
+}
+
+.snapshot-divider .divider-sysid {
+    font-size: 11px;
+    color: #aaa;
+    font-family: monospace;
+}
+
+.snapshot-divider .divider-snap-info {
+    font-size: 12px;
+    color: #856404;
+    margin-left: auto;
+}
+
+/* ===================================================
+   Tick 列
+   注意：與 .tick-stream-header 分享欄位寬度定義，請勿在此重複設定
+   =================================================== */
+.tick-row {
+    display: flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    transition: background 0.1s;
+    box-sizing: border-box;
+}
+
+.tick-row:hover {
+    background: #f0f4ff;
+}
+
+/* 顏色控制（寬度由上方共用规則控制） */
+.tick-row .t-time {
+    color: #555;
+}
+
+.tick-row .t-bid {
+    color: #0a5c36;
+    font-weight: 500;
+}
+
+.tick-row .t-ask {
+    color: #8b1a1a;
+    font-weight: 500;
+}
+
+.tick-row .t-spread {
+    color: #888;
+}
+
+.tick-row .t-seqno {
+    color: #aaa;
+}
+
+/* 無效 Tick（灰階） */
+.tick-row.tick-invalid {
+    opacity: 0.4;
+    background: #f8f8f8;
+}
+
+.tick-row.tick-invalid .t-bid,
+.tick-row.tick-invalid .t-ask,
+.tick-row.tick-invalid .t-time {
+    color: #999;
+    font-weight: normal;
+}
+
+/* ===================================================
+   Badge
+   =================================================== */
+.badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1.5;
+    letter-spacing: 0.3px;
+}
+
+.badge-last {
+    background: #0d6efd;
+    color: #fff;
+}
+
+.badge-min {
+    background: #198754;
+    color: #fff;
+}
+
+.badge-error {
+    background: #dc3545;
+    color: #fff;
+    font-size: 10px;
 }

@@ -3,7 +3,8 @@ import os
 import glob
 import re
 import sys
-from data_loader import DiffLoader, ProdLoader
+import pandas as pd
+from data_loader import DiffLoader, ProdLoader, SigmaDiffLoader
 from tick_parser import TickLoader
 
 
@@ -24,6 +25,7 @@ BASE_DIR = os.path.dirname(PROJECT_ROOT) # VIX/
 diff_loader = DiffLoader(os.path.join(BASE_DIR, "output"))
 prod_loader = ProdLoader(os.path.join(BASE_DIR, "output"), os.path.join(BASE_DIR, "資料來源"))
 tick_loader = TickLoader(os.path.join(BASE_DIR, "資料來源"))
+sigma_diff_loader = SigmaDiffLoader(os.path.join(BASE_DIR, "資料來源"), os.path.join(BASE_DIR, "output"))
 
 @app.route("/")
 def index():
@@ -140,7 +142,192 @@ def get_ticks():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+# ===================================================================
+# 自由探勘面板專用 API
+# ===================================================================
+
+@app.route("/api/explore/options")
+def api_explore_options():
+    """根據 date+term 動態回傳所有可用的履約價與時間點
+    供前端下拉選單使用，避免使用者手動輸入錯誤。
+    回傳: {strikes: [20000, 20100, ...], times: [84515, 84530, ...]}
+    """
+    date = request.args.get("date")
+    term = request.args.get("term")
+    if not all([date, term]):
+        return jsonify({"error": "缺少參數"}), 400
+    try:
+        sysid_map = prod_loader.build_sysid_map(date, term)
+        if not sysid_map:
+            return jsonify({"strikes": [], "times": []})
+
+        # 取出所有時間點（已在 sysid_map 中）
+        times = sorted(sysid_map.keys())
+
+        # 從 PROD TSV 讀出所有履約價
+        import os
+        path = os.path.join(prod_loader.source_dir, date, f"{term}PROD_{date}.tsv")
+        strikes = []
+        if os.path.exists(path):
+            df_s = pd.read_csv(path, sep="\t", usecols=["strike"])
+            strikes = sorted(df_s["strike"].dropna().astype(int).unique().tolist())
+
+        return jsonify({"strikes": strikes, "times": times})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/explore/sysid_map")
+def api_explore_sysid_map():
+    """取得 Time→SysID 對照表，供前端將時間轉換為 SysID"""
+    date = request.args.get("date")
+    term = request.args.get("term")
+    if not all([date, term]):
+        return jsonify({"error": "缺少參數"}), 400
+    try:
+        sysid_map = prod_loader.build_sysid_map(date, term)
+        # key 轉為 str（JSON 限制）
+        return jsonify({"sysid_map": {str(k): v for k, v in sysid_map.items()}})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/explore/ticks_stream")
+def api_explore_ticks_stream():
+    """連續河流 Tick 查詢，毎筆附帶 LAST/MIN 標記與 E-code"""
+    date        = request.args.get("date")
+    term        = request.args.get("term")
+    strike      = request.args.get("strike")
+    cp          = request.args.get("cp")
+    time_int    = request.args.get("time_int")  # HMMSS  或 HHMMSS
+    prepend_sysid = request.args.get("prepend_sysid")
+    append_sysid  = request.args.get("append_sysid")
+
+    if not all([date, term, strike, cp, time_int]):
+        return jsonify({"error": "缺少參數: date/term/strike/cp/time_int"}), 400
+
+    try:
+        # 建立 SysID 對照表
+        sysid_map = prod_loader.build_sysid_map(date, term)
+        if not sysid_map:
+            return jsonify({"error": f"找不到 {term}PROD_{date}.tsv 或 snapshot_sysID 欄位"}), 404
+
+        # 將 time_int 轉為 center_sysid
+        center_sysid = sysid_map.get(int(time_int))
+        if center_sysid is None:
+            # 找最接近的
+            closest = min(sysid_map.keys(), key=lambda k: abs(k - int(time_int)))
+            center_sysid = sysid_map[closest]
+
+        result = tick_loader.query_stream(
+            date=date,
+            term=term,
+            strike=int(strike),
+            cp=cp,
+            sysid_map=sysid_map,
+            center_sysid=center_sysid,
+            num_intervals=2,
+            prepend_sysid=int(prepend_sysid) if prepend_sysid else None,
+            append_sysid=int(append_sysid)   if append_sysid  else None,
+        )
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/explore/calc_trace")
+def api_explore_calc_trace():
+    """算式還原：取得指定時間點的 EMA 計算中間參數"""
+    date     = request.args.get("date")
+    term     = request.args.get("term")
+    time_int = request.args.get("time_int")
+    strike   = request.args.get("strike")
+
+    if not all([date, term, time_int, strike]):
+        return jsonify({"error": "缺少參數"}), 400
+
+    try:
+        trace = prod_loader.get_calc_trace(date, term, int(time_int), int(strike))
+        return jsonify(trace)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/explore/find_diff")
+def api_explore_find_diff():
+    """在指定商品中，左右指定時間點尋找上/一個差異"""
+    date         = request.args.get("date")
+    term         = request.args.get("term")
+    strike       = request.args.get("strike")
+    cp           = request.args.get("cp")
+    current_time = request.args.get("current_time")  # HMMSS
+    direction    = request.args.get("direction", "next")  # next 或 prev
+
+    if not all([date, term, strike, cp, current_time]):
+        return jsonify({"error": "缺少參數"}), 400
+
+    try:
+        # 讀入 diff CSV
+        df = diff_loader._load_df(date)
+
+        # 筛選指定商品
+        mask = (
+            (df["Term"].astype(str) == term) &
+            (df["Strike"].astype(str) == str(strike)) &
+            (df["CP"].astype(str) == cp)
+        )
+        item_df = df[mask].copy()
+        if item_df.empty:
+            return jsonify({"found": False, "message": "未找到該商品的差異記錄"})
+
+        item_df["Time"] = pd.to_numeric(item_df["Time"], errors="coerce")
+        item_df = item_df.dropna(subset=["Time"]).sort_values("Time")
+
+        cur = int(current_time)
+        if direction == "next":
+            found = item_df[item_df["Time"] > cur]
+            if found.empty:
+                return jsonify({"found": False})
+            row = found.iloc[0]
+        else:
+            found = item_df[item_df["Time"] < cur]
+            if found.empty:
+                return jsonify({"found": False})
+            row = found.iloc[-1]
+
+        return jsonify({
+            "found": True,
+            "time_int": int(row["Time"]),
+            "column": str(row["Column"]),
+            "ours": row.get("Ours"),
+            "prod": row.get("PROD"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/sigma_diff")
+def get_sigma_diff():
+    """取得 Sigma/VIX 的比對結果"""
+    date = request.args.get("date")
+    if not date:
+        return jsonify({"error": "缺少 date 參數"}), 400
+    
+    try:
+        result = sigma_diff_loader.get_diff(date)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    port = int(os.environ.get("FLASK_PORT", 5000))
     print(f"專案根目錄: {BASE_DIR}")
-    print("啟動 Viewer... 請用瀏覽器開啟 http://localhost:5000")
-    app.run(debug=True, port=5000)
+    print(f"啟動 Viewer... 請用瀏覽器開啟 http://{host if host != '0.0.0.0' else 'localhost'}:{port}")
+    if host == "0.0.0.0":
+        print(f"提示：目前綁定 0.0.0.0，同網域的其他電腦可透過您的 IP 連入。")
+    app.run(host=host, debug=True, port=port)
