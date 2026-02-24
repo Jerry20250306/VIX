@@ -5,7 +5,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIX 觀測站</title>
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* 強制價平序列高亮與長條圖文字不折行 */
+        tr.snapshot-row-atm {
+            background-color: #ffeb3b !important;
+        }
+
+        tr.snapshot-row-atm td {
+            background-color: #ffeb3b !important;
+            border-top: 1px solid #fbc02d !important;
+            border-bottom: 1px solid #fbc02d !important;
+        }
+
+        .contrib-cell {
+            white-space: nowrap !important;
+            overflow: visible !important;
+        }
+    </style>
 </head>
 
 <body>
@@ -23,7 +42,8 @@
 
         <!-- 頁籤導覽 -->
         <div class="tab-bar" style="display: none;">
-            <button id="tab-diff" class="tab active" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
+            <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 正式環境 VIX走勢儀表板</button>
+            <button id="tab-diff" class="tab" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
             <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 step0 行情查詢模式</button>
             <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 step1 Sigma & VIX 總表</button>
         </div>
@@ -41,6 +61,127 @@
                 <p style="color: #adb5bd; font-size: 14px; margin-top: 24px;">
                     (若選單內無資料，請先在此環境執行對應的驗證腳本以產生 output 檔案)
                 </p>
+            </div>
+
+            <!-- ===== 正式環境 VIX 走勢儀表板 ===== -->
+            <div id="mode-dashboard" style="display: none;">
+                <!-- 走勢圖區塊 -->
+                <section class="panel" style="margin-bottom: 20px;">
+                    <h2 style="margin-top: 0;">當日 VIX 走勢 (09:00:00 起)</h2>
+                    <div id="dashboard-chart" style="width: 100%; height: 400px;"></div>
+                </section>
+
+                <!-- 序列快照區塊 -->
+                <section id="dashboard-snapshot-panel" class="panel hidden">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                        <h2>
+                            序列快照
+                            <button id="btn-snapshot-prev" class="btn-secondary" style="margin-left:10px;"
+                                onclick="navigateSnapshot(-1)">◀ 前一區間</button>
+                            <span id="snapshot-time-label" style="font-size: 16px; color: #666; margin: 0 10px;"></span>
+                            <button id="btn-snapshot-next" class="btn-secondary" onclick="navigateSnapshot(1)">下一區間
+                                ▶</button>
+                        </h2>
+                        <span style="font-size: 13px; color: #888;">點擊以下任何一列可開啟行情河流</span>
+                    </div>
+
+                    <div class="dashboard-snapshot-layout"
+                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <!-- 左側: Near Term -->
+                        <div class="snapshot-col">
+                            <h3 style="text-align: center; color: #0d6efd;">Near Term</h3>
+                            <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+                                <table class="snapshot-table" id="snapshot-near-table"
+                                    style="font-size: 12px; width: 100%; text-align: center;">
+                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
+                                        <tr>
+                                            <th>Call Bid</th>
+                                            <th>Call Ask</th>
+                                            <th>Mid</th>
+                                            <th>
+                                                <div
+                                                    style="padding: 2px 6px; background: #e0f2fe; border-radius: 4px; border: 1px solid #bae6fd;">
+                                                    Strike</div>
+                                            </th>
+                                            <th>Mid</th>
+                                            <th>Put Bid</th>
+                                            <th>Put Ask</th>
+                                            <th>Contrib</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="snapshot-near-tbody">
+                                        <!-- 動態產生 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 右側: Next Term -->
+                        <div class="snapshot-col">
+                            <h3 style="text-align: center; color: #198754;">Next Term</h3>
+                            <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+                                <table class="snapshot-table" id="snapshot-next-table"
+                                    style="font-size: 12px; width: 100%; text-align: center;">
+                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
+                                        <tr>
+                                            <th>Call Bid</th>
+                                            <th>Call Ask</th>
+                                            <th>Mid</th>
+                                            <th>
+                                                <div
+                                                    style="padding: 2px 6px; background: #dcfce7; border-radius: 4px; border: 1px solid #bbf7d0;">
+                                                    Strike</div>
+                                            </th>
+                                            <th>Mid</th>
+                                            <th>Put Bid</th>
+                                            <th>Put Ask</th>
+                                            <th>Contrib</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="snapshot-next-tbody">
+                                        <!-- 動態產生 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 行情河流 Modal -->
+            <div id="tick-stream-modal" class="modal-overlay" style="display: none;">
+                <div class="modal-content" style="width: 90%; max-width: 1000px;">
+                    <div class="modal-header">
+                        <h3 id="modal-stream-title" style="margin: 0; display: inline-block;">行情河流</h3>
+                        <div id="modal-stream-meta"
+                            style="font-size: 13px; color: #666; display: inline-block; margin-left: 10px;"></div>
+                        <button class="modal-close" onclick="closeStreamModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="background: #f8f9fa; padding: 15px;">
+                        <button id="modal-btn-load-earlier" class="btn-load-more"
+                            onclick="exploreLoadMore('earlier', true)"
+                            style="display:none; width: 100%; margin-bottom: 10px;">
+                            ⬆ 載入更早
+                        </button>
+
+                        <div id="modal-stream-header" class="tick-stream-header" style="display:none;">
+                            <span class="t-time">時間</span>
+                            <span class="t-bid">Bid</span>
+                            <span class="t-ask">Ask</span>
+                            <span class="t-spread">Spread</span>
+                            <span class="t-seqno">SeqNo</span>
+                            <span class="t-badges" style="text-align:right;">標記</span>
+                        </div>
+
+                        <div id="modal-tick-stream" class="tick-stream-container"
+                            style="max-height: 50vh; overflow-y: auto;"></div>
+
+                        <button id="modal-btn-load-later" class="btn-load-more" onclick="exploreLoadMore('later', true)"
+                            style="display:none; width: 100%; margin-top: 10px;">
+                            ⬇ 載入更晚
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- ===== 差異清單模式 ===== -->
@@ -349,6 +490,7 @@
     <script src="/static/js/main.js"></script>
     <script src="/static/js/explorer.js"></script>
     <script src="/static/js/sigma.js"></script>
+    <script src="/static/js/dashboard.js"></script>
 </body>
 
 </html>

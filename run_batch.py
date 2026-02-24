@@ -10,8 +10,7 @@ VIX 計算批次執行與驗證腳本 (Batch Runner)
     python run_batch.py --start 20251201 --end 20251231
 
 相依性：
-    - step0_valid_quotes.py (Step 0 & 1)
-    - step0_2_ema_calculation.py (Step 2)
+    - step0_process_quotes.py (整合了有效報價篩選、EMA 計算與 Outlier 判定)
     - validation/quick_verify_numeric.py (Verification)
 """
 import subprocess
@@ -72,14 +71,26 @@ def verify_date_full(date_str):
 
 def main():
     parser = argparse.ArgumentParser(description="VIX 批次計算與驗證")
-    parser.add_argument("--start", type=str, required=True, help="開始日期 (YYYYMMDD)")
-    parser.add_argument("--end", type=str, required=True, help="結束日期 (YYYYMMDD)")
+    parser.add_argument("--date", type=str, help="單一執行日期 (YYYYMMDD)")
+    parser.add_argument("--start", type=str, help="開始日期 (YYYYMMDD)")
+    parser.add_argument("--end", type=str, help="結束日期 (YYYYMMDD)")
     parser.add_argument("--stop-on-error", action="store_true", help="遇到錯誤是否停止 (預設: 繼續跑下一天)")
     
     args = parser.parse_args()
     
-    start_date = datetime.strptime(args.start, "%Y%m%d")
-    end_date = datetime.strptime(args.end, "%Y%m%d")
+    # 邏輯判斷：優先使用 --date，若無則使用 start/end
+    if args.date:
+        start_str = args.date
+        end_str = args.date
+    elif args.start and args.end:
+        start_str = args.start
+        end_str = args.end
+    else:
+        print("錯誤: 請提供 --date 或同時提供 --start 與 --end")
+        return
+    
+    start_date = datetime.strptime(start_str, "%Y%m%d")
+    end_date = datetime.strptime(end_str, "%Y%m%d")
     
     current_date = start_date
     summary = []
@@ -101,17 +112,10 @@ def main():
             
         success = True
         
-        # 1. 執行 Step 0 & 1 (Near + Next)
-        cmd_step0 = f"python -u step0_valid_quotes.py ALL {date_str}"
-        if not run_command(cmd_step0, f"Step 0: 有效報價篩選 ({date_str})"):
+        # 1. 執行整合處理 (有效報價篩選 + EMA 計算 + Outlier 判定)
+        cmd_process = f"python -u step0_process_quotes.py {date_str}"
+        if not run_command(cmd_process, f"Step 0: 報價處理與異常值偵測 ({date_str})"):
             success = False
-        
-        # 2. 執行 Step 2 (EMA Calculation)
-        if success:
-            cmd_step2 = f"python -u step0_2_ema_calculation.py {date_str}"
-            # 注意: 如果你的 script 支援參數，可能需要調整
-            if not run_command(cmd_step2, f"Step 2: EMA 計算 ({date_str})"):
-                success = False
                 
         # 3. 驗證 (Near & Next 一併驗證)
         verify_success = False

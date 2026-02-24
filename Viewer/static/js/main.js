@@ -39,8 +39,9 @@ async function init() {
                 document.getElementById("welcome-panel").style.display = "none";
                 document.querySelector(".tab-bar").style.display = "flex";
 
-                // 判斷當前處於哪個頁籤，若無則預設為 diff
-                let activeTab = 'diff';
+                // 判斷當前處於哪個頁籤，若無則預設為 dashboard 或 diff
+                let activeTab = 'dashboard';
+                if (document.getElementById('tab-diff').classList.contains('active')) activeTab = 'diff';
                 if (document.getElementById('tab-explore').classList.contains('active')) activeTab = 'explore';
                 if (document.getElementById('tab-sigma') && document.getElementById('tab-sigma').classList.contains('active')) activeTab = 'sigma';
 
@@ -56,6 +57,7 @@ async function init() {
                 // 退回未選擇狀態：顯示歡迎畫面，隱藏所有模式與頁籤
                 document.getElementById("welcome-panel").style.display = "block";
                 document.querySelector(".tab-bar").style.display = "none";
+                if (document.getElementById("mode-dashboard")) document.getElementById("mode-dashboard").style.display = "none";
                 document.getElementById("mode-diff").style.display = "none";
                 document.getElementById("mode-explore").style.display = "none";
                 if (document.getElementById("mode-sigma")) document.getElementById("mode-sigma").style.display = "none";

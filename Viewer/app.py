@@ -268,6 +268,53 @@ def api_explore_ticks_stream():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/vix_trend")
+def api_vix_trend():
+    """取得特定日期的 VIX 走勢 (09:00:00 以後)"""
+    date = request.args.get("date")
+    if not date:
+        return jsonify({"error": "缺少參數 date"}), 400
+
+    try:
+        # 直接利用 sigma_diff_loader 或自行讀取 sigma_YYYYMMDD.tsv
+        path = os.path.join(prod_loader.source_dir, date, f"sigma_{date}.tsv")
+        if not os.path.exists(path):
+             return jsonify({"error": "找不到 sigma 檔案"}), 404
+
+        df = pd.read_csv(path, sep="\t", dtype={"time": str})
+        
+        # 過濾 090000 以後的資料
+        df["time_int"] = df["time"].astype(str).str.zfill(6).astype(int)
+        df = df[df["time_int"] >= 90000].copy()
+        
+        # 只保留需要的欄位
+        df = df[["time", "vix", "ori_vix"]].copy()
+        df = df.astype(object).where(pd.notnull(df), None)
+        
+        return jsonify({"rows": df.to_dict(orient="records")})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/snapshot")
+def api_snapshot():
+    """取得特定日期與時間點的 Call/Put 快照與貢獻度 (Left/Right 分開)"""
+    date = request.args.get("date")
+    time_int = request.args.get("time_int")
+    
+    if not all([date, time_int]):
+        return jsonify({"error": "缺少參數"}), 400
+        
+    try:
+        result = prod_loader.get_snapshot_with_contrib(date, time_int)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/explore/calc_trace")
 def api_explore_calc_trace():
     """算式還原：取得指定時間點的 EMA 計算中間參數"""

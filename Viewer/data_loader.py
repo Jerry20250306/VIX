@@ -159,14 +159,12 @@ class ProdLoader:
     def get_prod_row(self, date, term, time_val, strike):
         """取得 PROD 中特定 (time, strike) 的一列"""
         key = f"prod_{date}_{term}"
-        if key not in self._cache:
-            path = os.path.join(self.source_dir, date, f"{term}PROD_{date}.tsv")
-            if os.path.exists(path):
-                self._cache[key] = pd.read_csv(path, sep="\t")
-            else:
-                return {}
+        path = os.path.join(self.source_dir, date, f"{term}PROD_{date}.tsv")
+        if os.path.exists(path):
+            df = pd.read_csv(path, sep="\t")
+        else:
+            return {}
         
-        df = self._cache[key]
         row = df[(df["time"] == int(time_val)) & (df["strike"] == int(strike))]
         if row.empty:
             return {}
@@ -373,6 +371,47 @@ class ProdLoader:
             "page": page,
         }
 
+    def get_snapshot_with_contrib(self, date, time_int):
+        """讀取 Near_Contrib 與 Next_Contrib 並組合為 T 字報價所需結構
+        回傳: {"Near": [rows...], "Next": [rows...]}
+        """
+        result = {"Near": [], "Next": []}
+
+        for term in ["Near", "Next"]:
+            path = os.path.join(self.source_dir, date, f"{term}_Contrib_{date}.tsv")
+            if not os.path.exists(path):
+                continue
+            
+            df = pd.read_csv(path, sep="\t")
+            # 篩選特定時間
+            df_time = df[df["time"] == int(time_int)].copy()
+            if df_time.empty:
+                continue
+                
+            # 尋找全空(只含 strike 等基本資訊) 的 row 來取得 ATM Strike
+            # 我們可以觀察 contrib 欄位是否為空 (NaN) 或 'X'
+            atm_mask = df_time['contrib'].isna() | (df_time['contrib'] == 'X') | (df_time['contrib'] == '') | (df_time['contrib'] == ' ')
+            atm_rows = df_time[atm_mask]
+            atm_strike = atm_rows.iloc[0]['strike'] if not atm_rows.empty else None
+            
+            # 標記 ATM，並過濾掉只用來標記 ATM 但是缺乏 contrib 和 mid 等報價的「空氣列」
+            # 我們會保留該 strike 的其他正常列，這才是我們要畫的！
+            df_time["is_atm"] = (df_time["strike"] == atm_strike)
+            df_time = df_time[~df_time.index.isin(atm_rows.index)]
+            
+            # 確保有 contrib 欄位 (原本為科學記號字串或數值)
+            df_time["contrib_num"] = pd.to_numeric(df_time["contrib"], errors="coerce").fillna(0)
+            
+            # NaN -> None
+            df_time = df_time.astype(object).where(pd.notnull(df_time), None)
+            
+            # 依履約價排序
+            df_time = df_time.sort_values("strike")
+            
+            result[term] = df_time.to_dict(orient="records")
+
+        return result
+
 class SigmaDiffLoader:
     """讀取 PROD 的 sigma_YYYYMMDD.tsv 與我們產出的 my_sigma_YYYYMMDD.tsv 進行差異比對"""
     def __init__(self, prod_dir, my_dir):
@@ -381,9 +420,6 @@ class SigmaDiffLoader:
         self._cache = {}
 
     def get_diff(self, date):
-        if date in self._cache:
-            return self._cache[date]
-
         # PROD 檔案預期在 資料來源/YYYYMMDD/sigma_YYYYMMDD.tsv
         prod_path = os.path.join(self.prod_dir, date, f"sigma_{date}.tsv")
         # 我們自算的檔案預期在 output/my_sigma_YYYYMMDD.tsv
@@ -423,5 +459,4 @@ class SigmaDiffLoader:
             "error": None,
             "rows": df.to_dict(orient="records")
         }
-        self._cache[date] = result
         return result

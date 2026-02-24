@@ -31,16 +31,23 @@ const ERROR_LABELS = {
 // 頁籤切換
 // ===================================================================
 function switchTab(mode) {
+    const isDashboard = mode === "dashboard";
     const isDiff = mode === "diff";
     const isExplore = mode === "explore";
     const isSigma = mode === "sigma";
 
+    if (document.getElementById("mode-dashboard")) {
+        document.getElementById("mode-dashboard").style.display = isDashboard ? "" : "none";
+    }
     document.getElementById("mode-diff").style.display = isDiff ? "" : "none";
     document.getElementById("mode-explore").style.display = isExplore ? "" : "none";
     if (document.getElementById("mode-sigma")) {
         document.getElementById("mode-sigma").style.display = isSigma ? "" : "none";
     }
 
+    if (document.getElementById("tab-dashboard")) {
+        document.getElementById("tab-dashboard").classList.toggle("active", isDashboard);
+    }
     document.getElementById("tab-diff").classList.toggle("active", isDiff);
     document.getElementById("tab-explore").classList.toggle("active", isExplore);
     if (document.getElementById("tab-sigma")) {
@@ -51,7 +58,9 @@ function switchTab(mode) {
     const dateSelect = document.getElementById("date-selector");
     const currentDate = dateSelect ? dateSelect.value : null;
 
-    if (isExplore) {
+    if (isDashboard) {
+        if (currentDate && typeof loadDashboardChart === "function") loadDashboardChart();
+    } else if (isExplore) {
         ExploreState.date = currentDate;
         if (currentDate) exploreLoadOptions();
     } else if (isSigma) {

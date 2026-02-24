@@ -1,0 +1,124 @@
+/* ===================================================
+   Dashboard: 走勢圖與序列快照
+   =================================================== */
+.dashboard-snapshot-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.snapshot-col {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.snapshot-table th {
+    background-color: #f8f9fa;
+    color: #495057;
+    font-weight: 600;
+    padding: 8px 4px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.snapshot-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid #eee;
+    vertical-align: middle;
+}
+
+/* 價平序列特別醒目標示 */
+.snapshot-row-atm {
+    background-color: #fff3cd !important;
+    font-weight: bold;
+}
+.snapshot-row-atm td {
+    border-top: 1px solid #ffecb5;
+    border-bottom: 1px solid #ffecb5;
+}
+
+/* 貢獻度長條圖 (Color Bar) */
+.contrib-cell {
+    position: relative;
+    width: 60px;
+    text-align: right;
+    padding-right: 8px;
+}
+
+.contrib-bar {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    right: 50%;
+    transform: translateX(50%);
+    background-color: rgba(13, 110, 253, 0.2);
+    border-radius: 2px;
+    z-index: 0;
+    max-width: 100%;
+}
+
+.contrib-text {
+    position: relative;
+    z-index: 1;
+    font-size: 11px;
+    color: #495057;
+}
+
+/* ===================================================
+   Modal UI
+   =================================================== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.modal-content {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+.modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.modal-close {
+    position: absolute;
+    right: 15px;
+    top: 15px;
+    background: none;
+    border: none;
+    font-size: 24px;
+    line-height: 1;
+    color: #6c757d;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: #dc3545;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}

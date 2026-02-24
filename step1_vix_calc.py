@@ -1,9 +1,13 @@
 import os
+import sys
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import argparse
 import pandas as pd
 import numpy as np
 from datetime import datetime
-
 def load_data(date_str, source_dir):
     """
     載入計算 VIX 所需的所有輸入檔案
@@ -184,6 +188,7 @@ def main():
     prev_pub_vix = fallback_vix
     prev_ori_vix = fallback_vix
     jump_count = 0
+    has_passed_9am = False
     
     for t in time_points:
         # 1. 取得該時間點的各項參數
@@ -217,7 +222,9 @@ def main():
         
         # 4. 計算 ORI VIX
         ori_vix = -1.0
-        if nearSigma2 > 0 and nextSigma2 > 0:
+        
+        # 情境 A: 正常插補 (近月小於 30 天，且次近月可計算)
+        if nearSigma2 > 0 and nextSigma2 > 0 and nearW < 1.0:
             term1 = nearT * nearSigma2 * nearW
             term2 = nextT * nextSigma2 * nextW
             N365 = 31536000.0  # 全年秒數 365 * 24 * 60 * 60
@@ -229,6 +236,12 @@ def main():
                 ori_vix = np.sqrt(inside_sqrt) * 100  # 依照 spec 計算結果乘以 100 得到實際發布指數值
                 prev_ori_vix = ori_vix
                 
+        # 情境 B: 退化公式 (當近月 >= 30 天，即 nearW >= 1.0；或次近月無法計算時)
+        # 此時放棄插補，直接採用近月的變異數求波動率
+        elif nearSigma2 > 0:
+            ori_vix = np.sqrt(nearSigma2) * 100
+            prev_ori_vix = ori_vix
+                
         # 若無法計算，但有前一筆有效值，則沿用；否則保持 -1.0 或是 spec 特殊規定的初始值
         if ori_vix < 0 and prev_ori_vix is not None:
             ori_vix = prev_ori_vix
@@ -236,35 +249,51 @@ def main():
         # 5. VIX 2.5% 過濾邏輯 (Series-Level Filtering)
         pub_vix = -1.0
         
-        if ori_vix > 0:
-            if prev_pub_vix is None:
-                # 初始第一筆直接對外揭露
-                pub_vix = ori_vix
-                prev_pub_vix = pub_vix
+        # 判定時間區間
+        if t < "090000":
+            # 9點前：不揭示 (-1)，也不把 ori_vix 當作過濾條件起點
+            pub_vix = -1.0
+            jump_count = 0
+        else:
+            # 9點起 (含 9:00:00)
+            if not has_passed_9am:
+                # 這是 9 點整 (或過了 9 點的第一筆) -> 無條件揭示
+                has_passed_9am = True
+                if ori_vix > 0:
+                    pub_vix = round(ori_vix, 2)
+                    prev_pub_vix = pub_vix
+                # 若這時 ori_vix 本身是無效的，就還是保持 -1 (或看有沒有 fallback)
                 jump_count = 0
             else:
-                change = abs(ori_vix - prev_pub_vix) / prev_pub_vix
-                if change > 0.025:
-                    jump_count += 1
-                    if jump_count >= 4:
-                        # 連續四次超過 2.5%，強制揭露新值
-                        pub_vix = ori_vix
+                # 9:00:15 以後的常規盤中邏輯
+                if ori_vix > 0:
+                    if prev_pub_vix is None or prev_pub_vix < 0:
+                        # 如果連 9 點第一筆都沒揭出數字來，盤中遇到了就首度揭示
+                        pub_vix = round(ori_vix, 2)
                         prev_pub_vix = pub_vix
                         jump_count = 0
                     else:
-                        # 沿用前一次的對外揭露值
-                        pub_vix = prev_pub_vix
+                        # 核心 2.5% 過濾
+                        change = abs(ori_vix - prev_pub_vix) / prev_pub_vix
+                        if change > 0.025:
+                            jump_count += 1
+                            if jump_count >= 4:
+                                # 連續四次超過 2.5%，強制揭露新值
+                                pub_vix = round(ori_vix, 2)
+                                prev_pub_vix = pub_vix
+                                jump_count = 0
+                            else:
+                                # 沿用前一次的對外揭露值
+                                pub_vix = prev_pub_vix
+                        else:
+                            # 變動小於 2.5%，正常揭露並重置計數
+                            pub_vix = round(ori_vix, 2)
+                            prev_pub_vix = pub_vix
+                            jump_count = 0
                 else:
-                    # 變動小於 2.5%，正常揭露並重置計數
-                    pub_vix = ori_vix
-                    prev_pub_vix = pub_vix
-                    jump_count = 0
-        else:
-            # 如果無法計算 ori_vix (且無前值)，則 pub_vix 填與官方一致的預設值，這裡先看若有前揭露值則沿用
-            if prev_pub_vix is not None:
-                pub_vix = prev_pub_vix
-            else:
-                pass
+                    # 如果無法計算 ori_vix (例如報價全壞)，則退回保持前次揭示
+                    if prev_pub_vix is not None and prev_pub_vix > 0:
+                        pub_vix = prev_pub_vix
             
         # 紀錄 ori_vix (有包含補齊 00 格式，但我們先保留原始 time 格式即可)
         results_ori_vix.append({

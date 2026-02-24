@@ -12,14 +12,16 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
+:: 設定允許外部連線 (綁定 0.0.0.0)
+set FLASK_HOST=0.0.0.0
+
 echo.
-echo 1. 啟動 Python 後端伺服器...
-echo 2. 等待伺服器就緒...
-echo 3. 自動開啟瀏覽器...
+echo ===================================================
+echo   您的區域網路連線位址為: http://192.168.23.136:5000
+echo ===================================================
 echo.
 
-:: 啟動瀏覽器 (稍等 2 秒讓 Server 先跑起來)
-timeout /t 2 >nul
+:: 啟動瀏覽器
 start http://localhost:5000
 
 :: 啟動 Python Server
