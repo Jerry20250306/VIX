@@ -101,10 +101,51 @@ $env:FLASK_HOST="0.0.0.0"; python Viewer/app.py
 
 ### 主要功能
 
-- **差異摘要 (Diff Summary)**：自動掃描 `output/` 下的驗證報告，列出所有不一致的點。
-- **逐筆分析**：點擊差異點可查看該時點的原始報價、計算過程與 PROD 數據。
-- **VIX 曲線比對**：視覺化對照自研計算結果與官方 VIX 數值的走勢差異。
-- **Tick 追蹤**：回溯快照生成時的原始 Tick 來源。
+Viewer 提供四大主要模式，透過頂部導覽列切換：
+
+#### 1. 📊 差異清單模式 (Diff Summary)
+
+- 自動掃描 `output/validation_diff_YYYYMMDD.csv`，列出所有不一致的點
+- 依 Term × Column 分組摘要（EMA、Gamma、Outlier 等）
+- 支援 Near / Next 分頁、CP 篩選、Strike 篩選、欄位篩選
+- 點擊差異列可開啟 Tick 行情河流懸浮視窗，追溯每 15 秒快照前後所有原始 Tick 來源
+
+#### 2. 📈 VIX 走勢看板模式 — MSCI 方法 (Dashboard)
+
+- 以 ECharts 時間序列曲線視覺化：`VIX揭示值`（實線）與 `VIX計算值`（虛線）
+- **⚠️ Alert 閃爍紅點**：若 `資料來源/Alert/YYYYMMDD_alert_report.HHMMSS.tsv` 存在，走勢圖上將在對應時間點顯示閃爍紅色波紋圓點
+  - Hover 顯示觸發條件概覽（Alert 用獨立紅底框強調，不與 VIX 數值混排）
+  - 點擊紅點開啟可拖曳的 **Alert 詳情報告 Modal**，含三個 Tab：
+    - **摘要 Tab**：觸發條件清單、Near/Next Sigma²、序列數變化量、VIX 數值前後比對
+    - **Near Term Contribution Tab**：逐履約價的 Mid / SpreadRatio / Contrib / Weight 前後對比（含 Weight Diff 與 Contrib Diff%），依影響幅度降序排列
+    - **Next Term Contribution Tab**：同上，篩選 Next 到期月份
+- 支援 DataZoom 縮放
+
+#### 3. 🔭 行情探勘模式 (Explore)
+
+- 左側搜尋面板：指定日期、Near/Next、履約價、Call/Put，查詢特定商品完整快照資料
+- 右側行情河流：連續時間序列顯示，支援「載入更早」/「載入更晚」延伸
+- 可開啟懸浮行情河流視窗（可拖曳定位）做跨面板比對
+- 支援算式還原（反推 Q_hat 計算過程）與 Ours vs PROD 比對
+
+#### 4. 🧪 Sigma & VIX 比對模式 (Sigma)
+
+- 以表格比較每個時間點的 Near Sigma²、Next Sigma²、ORI VIX、VIX 的「PROD vs 我的計算」差異
+- 標示差異欄位，快速定位偏差所在
+
+### API Endpoints
+
+| Endpoint | 說明 |
+|----------|------|
+| `GET /api/dates` | 取得所有已驗證的日期清單 |
+| `GET /api/diff/<date>` | 取得指定日期差異報告（分頁） |
+| `GET /api/diff_full/<date>` | 取得完整計算資料（含差異標記） |
+| `GET /api/ticks` | 查詢原始 Tick Data（依 SysID 範圍） |
+| `GET /api/prod_row` | 查詢指定時間點的 PROD 與我們的計算結果比對 |
+| `GET /api/sigma_diff/<date>` | 取得 Sigma / VIX 逐點比對資料 |
+| `GET /api/alerts?date=<date>` | 取得指定日期所有 Alert Report 解析結果 |
+| `GET /api/snapshot` | 查詢指定時間快照（Explore 模式使用） |
+| `GET /api/stream` | 查詢行情河流（Explore 模式使用） |
 
 所有驗證腳本皆位於 `validation/` 目錄中，用於確保計算結果與官方 PROD 資料 100% 一致。
 

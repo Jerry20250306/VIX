@@ -129,6 +129,14 @@
         #tick-stream-modal .tick-row {
             justify-content: center;
         }
+
+        /* Alert Modal 表格：緊湊化，防止橫向捲動 */
+        #alert-modal .snapshot-table th,
+        #alert-modal .snapshot-table td {
+            padding: 4px 3px !important;
+            white-space: nowrap;
+            font-size: 11px;
+        }
     </style>
 </head>
 
@@ -147,7 +155,7 @@
 
         <!-- 頁籤導覽 -->
         <div class="tab-bar" style="display: none;">
-            <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 VIX走勢儀表板</button>
+            <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 VIX走勢儀表板(MSCI方法)</button>
             <button id="tab-diff" class="tab" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
             <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 step0 行情查詢模式</button>
             <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 step1 Sigma & VIX 總表</button>
@@ -596,6 +604,159 @@
                 </section>
             </div>
         </main>
+    </div>
+
+    <!-- ===== Alert 詳情 Modal ===== -->
+    <div id="alert-modal" class="floating-window" style="display: none; width: 96vw; max-width: 1400px;">
+        <div class="modal-header floating-header" id="alert-drag-header"
+            style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin: 0; display: inline-block;">⚠️ Alert 詳情報告</h3>
+            </div>
+            <button class="btn-secondary" onclick="document.getElementById('alert-modal').style.display='none'"
+                style="cursor: pointer; padding: 4px 12px; font-weight: bold;">關閉視窗 (X)</button>
+        </div>
+        <div class="modal-body" style="padding: 0;">
+            <div class="alert-tabs" style="display: flex; background: #f8f9fa; border-bottom: 1px solid #dee2e6;">
+                <button class="alert-tab active" onclick="switchAlertTab('summary')"
+                    style="flex: 1; padding: 10px; border: none; background: none; cursor: pointer; font-weight: bold;">📋
+                    摘要</button>
+                <button class="alert-tab" onclick="switchAlertTab('near')"
+                    style="flex: 1; padding: 10px; border: none; background: none; cursor: pointer; color: #555;">📊
+                    Near</button>
+                <button class="alert-tab" onclick="switchAlertTab('next')"
+                    style="flex: 1; padding: 10px; border: none; background: none; cursor: pointer; color: #555;">📊
+                    Next</button>
+            </div>
+
+            <div style="padding: 0;">
+                <!-- Tab 1: 摘要 -->
+                <div id="alert-tab-summary" style="display: block; padding: 15px; max-height: 70vh; overflow-y: auto;">
+                    <div
+                        style="background: #fff; border: 1px solid #e03e3e; border-radius: 6px; padding: 15px; margin-bottom: 15px;">
+                        <h4 style="color: #e03e3e; margin-top: 0; margin-bottom: 10px;">🔴 觸發條件</h4>
+                        <ul id="alert-conditions-list"
+                            style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
+                        </ul>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <!-- Near Summary -->
+                        <div
+                            style="background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; font-size: 13px;">
+                            <h4 style="color: #0d6efd; margin-top: 0; margin-bottom: 8px; text-align: center;">Near Term
+                            </h4>
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td style="color:#666;">Sigma²:</td>
+                                    <td id="alert-near-sigma" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">序列數:</td>
+                                    <td id="alert-near-series" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">變化:</td>
+                                    <td id="alert-near-diff"
+                                        style="text-align:right; font-family:monospace; font-weight:bold;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">Type:</td>
+                                    <td id="alert-near-type" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                            </table>
+                        </div>
+                        <!-- Next Summary -->
+                        <div
+                            style="background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; font-size: 13px;">
+                            <h4 style="color: #198754; margin-top: 0; margin-bottom: 8px; text-align: center;">Next Term
+                            </h4>
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td style="color:#666;">Sigma²:</td>
+                                    <td id="alert-next-sigma" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">序列數:</td>
+                                    <td id="alert-next-series" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">變化:</td>
+                                    <td id="alert-next-diff"
+                                        style="text-align:right; font-family:monospace; font-weight:bold;"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color:#666; padding-top:4px;">Type:</td>
+                                    <td id="alert-next-type" style="text-align:right; font-family:monospace;"></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div
+                        style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; font-size: 14px; font-family: monospace;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                            <span style="color:#555;">ori_vix:</span>
+                            <span id="alert-ori-vix"></span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:#555;">vix:</span>
+                            <span id="alert-display-vix"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Near Contribution -->
+                <div id="alert-tab-near" style="display: none;">
+                    <div class="table-container" style="max-height: 70vh; overflow-y: auto;">
+                        <table class="snapshot-table" style="width: 100%; text-align: center;">
+                            <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 10;">
+                                <tr>
+                                    <th>Strike</th>
+                                    <th>ATM</th>
+                                    <th>Mid(前)</th>
+                                    <th>Mid(後)</th>
+                                    <th>SR(前)</th>
+                                    <th>SR(後)</th>
+                                    <th>Contrib(前)</th>
+                                    <th>Contrib(後)</th>
+                                    <th>Weight(前)</th>
+                                    <th>Weight(後)</th>
+                                    <th>Weight Diff</th>
+                                    <th>Contrib Diff%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alert-near-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Next Contribution -->
+                <div id="alert-tab-next" style="display: none;">
+                    <div class="table-container" style="max-height: 70vh; overflow-y: auto;">
+                        <table class="snapshot-table" style="width: 100%; text-align: center;">
+                            <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 10;">
+                                <tr>
+                                    <th>Strike</th>
+                                    <th>ATM</th>
+                                    <th>Mid(前)</th>
+                                    <th>Mid(後)</th>
+                                    <th>SR(前)</th>
+                                    <th>SR(後)</th>
+                                    <th>Contrib(前)</th>
+                                    <th>Contrib(後)</th>
+                                    <th>Weight(前)</th>
+                                    <th>Weight(後)</th>
+                                    <th>Weight Diff</th>
+                                    <th>Contrib Diff%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alert-next-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/main.js"></script>

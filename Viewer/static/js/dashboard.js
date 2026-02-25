@@ -48,8 +48,13 @@ async function loadDashboardChart() {
         // 加入 300ms 的視覺緩衝時間，讓 User 確實看見 Loading 提示，不會覺得畫面結凍
         await new Promise(r => setTimeout(r, 300));
 
-        const res = await fetch(`/api/vix_trend?date=${date}`);
-        const data = await res.json();
+        const [trendRes, alertRes] = await Promise.all([
+            fetch(`/api/vix_trend?date=${date}`),
+            fetch(`/api/alerts?date=${date}`)
+        ]);
+
+        const data = await trendRes.json();
+        const alertData = await alertRes.json();
 
         if (data.error) {
             console.error("載入 VIX 走勢失敗:", data.error);
@@ -57,7 +62,7 @@ async function loadDashboardChart() {
             return;
         }
 
-        renderVixChart(data.rows);
+        renderVixChart(data.rows, alertData.alerts || []);
 
         // 隱藏快照面板，直到使用者點擊圖表
         document.getElementById('dashboard-snapshot-panel').classList.add('hidden');
@@ -71,7 +76,7 @@ async function loadDashboardChart() {
     }
 }
 
-function renderVixChart(rows) {
+function renderVixChart(rows, alerts) {
     if (!vixChart) return;
 
     // 預期 rows: [{time: "090000", vix: 14.5, ori_vix: 15.1}, ...]
@@ -100,6 +105,24 @@ function renderVixChart(rows) {
     let option = {
         tooltip: {
             trigger: 'axis',
+            formatter: function (params) {
+                let html = `<div style="font-weight:bold;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:4px;">${params[0].axisValue}</div>`;
+                let alertHtml = "";
+
+                params.forEach(p => {
+                    if (p.seriesName === 'Alert') {
+                        alertHtml += `<div style="margin-top: 8px; padding: 6px 8px; background-color: #f8dbd9; border: 1px solid #e03e3e; border-radius: 4px; color: #a41515;">
+                            <strong>${p.data.tooltipLabel}</strong><br>
+                            <span style="font-size:12px; color:#555;">(點擊閃爍紅點查看報告明細)</span>
+                        </div>`;
+                    } else if (p.value !== null && p.value !== undefined) {
+                        let val = Number(p.value).toFixed(2);
+                        html += `<div>${p.marker} ${p.seriesName}: <span style="font-weight:bold; float:right; margin-left:15px;">${val}</span></div>`;
+                    }
+                });
+
+                return html + alertHtml;
+            },
             axisPointer: {
                 type: 'cross',
                 label: { backgroundColor: '#37352f' }
@@ -210,7 +233,159 @@ function renderVixChart(rows) {
         ]
     };
 
+    // 如果有 alerts，加入 effectScatter Series (閃爍紅點，不僅好看也不會重疊雜亂)
+    if (alerts && alerts.length > 0) {
+        let alertSeriesData = alerts.map(alert => {
+            let t = alert.time.padStart(6, '0');
+            let formattedTime = `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
+
+            // 找出對應時間的 y 值 (沿著線條繪製)
+            let targetRow = rows.find(r => r.time.toString().padStart(6, '0') === t);
+            let y_val = targetRow ? (targetRow.vix > 0 ? targetRow.vix : targetRow.ori_vix) : null;
+
+            return {
+                name: 'Alert',
+                value: [formattedTime, y_val],
+                tooltipLabel: `⚠️ ${alert.time_display} Alert — Condition ${alert.triggered_conditions.join(', ')}`,
+                alertData: alert
+            };
+        });
+
+        option.series.push({
+            name: 'Alert',
+            type: 'effectScatter',
+            coordinateSystem: 'cartesian2d',
+            data: alertSeriesData.filter(d => d.value[1] !== null), // 過濾掉找不到對應 Y 軸的點
+            symbolSize: 10,
+            showEffectOn: 'render',
+            rippleEffect: {
+                brushType: 'stroke',
+                scale: 3
+            },
+            itemStyle: {
+                color: '#e03e3e',
+                shadowBlur: 8,
+                shadowColor: '#e03e3e'
+            },
+            zlevel: 5,
+            tooltip: {
+                // 獨立於全域 cross tooltip，專為 Alert 特製 Hover
+                formatter: function (params) {
+                    return `<div style="padding: 4px;"><strong>${params.data.tooltipLabel}</strong><br><span style="font-size:12px;color:#666;">點擊紅點查看報告明細</span></div>`;
+                }
+            }
+        });
+
+        // 綁定效果點 click 顯示 modal
+        vixChart.on('click', function (params) {
+            if (params.seriesName === 'Alert') {
+                showAlertModal(params.data.alertData);
+                // 防止事件穿透導致觸發背景格線的 snapshot
+                params.event.event.stopPropagation();
+            }
+        });
+    }
+
     vixChart.setOption(option);
+}
+
+// 供 Alert Modal 內部切換 Tab 使用
+function switchAlertTab(tabName) {
+    document.querySelectorAll('.alert-tab').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('[id^="alert-tab-"]').forEach(div => div.style.display = 'none');
+
+    document.querySelector(`.alert-tab[onclick*="'${tabName}'"]`).classList.add('active');
+    document.getElementById(`alert-tab-${tabName}`).style.display = 'block';
+}
+
+function showAlertModal(alertData) {
+    if (!alertData) return;
+
+    // 預設切回摘要 Tab
+    switchAlertTab('summary');
+
+    // --- 填充條件清單 ---
+    const ul = document.getElementById('alert-conditions-list');
+    ul.innerHTML = '';
+    alertData.triggered_conditions.forEach(c => {
+        let li = document.createElement('li');
+        li.innerHTML = `<strong>${c}</strong> — ${alertData.condition_descriptions[c] || 'Unknown condition'}`;
+        ul.appendChild(li);
+    });
+
+    // --- 填充 Summary ---
+    const summary = alertData.summary;
+    const p = summary.prev;
+    const c = summary.current;
+
+    // Near
+    document.getElementById('alert-near-sigma').innerText = `${p.nearSigma2} ${c.nearSigma2 !== p.nearSigma2 ? '→ ' + c.nearSigma2 : '(不變)'}`;
+    document.getElementById('alert-near-series').innerText = `${p.nearSeriesCount} → ${c.nearSeriesCount}`;
+    let nearPct = p.nearSeriesCount > 0 ? ((c.nearSeriesCount - p.nearSeriesCount) / p.nearSeriesCount * 100).toFixed(1) : 0;
+    document.getElementById('alert-near-diff').innerText = `${nearPct > 0 ? '▲' : '▼'}${Math.abs(nearPct)}%`;
+    document.getElementById('alert-near-diff').style.color = nearPct < -15 ? '#e03e3e' : '#555';
+    document.getElementById('alert-near-type').innerText = `${p.nearType} → ${c.nearType}`;
+
+    // Next
+    document.getElementById('alert-next-sigma').innerText = `${p.nextSigma2} ${c.nextSigma2 !== p.nextSigma2 ? '→ ' + c.nextSigma2 : '(不變)'}`;
+    document.getElementById('alert-next-series').innerText = `${p.nextSeriesCount} → ${c.nextSeriesCount}`;
+    let nextPct = p.nextSeriesCount > 0 ? ((c.nextSeriesCount - p.nextSeriesCount) / p.nextSeriesCount * 100).toFixed(1) : 0;
+    document.getElementById('alert-next-diff').innerText = `${nextPct > 0 ? '▲' : '▼'}${Math.abs(nextPct)}%`;
+    document.getElementById('alert-next-diff').style.color = nextPct < -15 ? '#e03e3e' : '#555';
+    document.getElementById('alert-next-type').innerText = `${p.nextType} → ${c.nextType}`;
+
+    // Global VIX
+    let oriPct = c.ori_vix_change ? (parseFloat(c.ori_vix_change) * 100).toFixed(6) : 0;
+    document.getElementById('alert-ori-vix').innerHTML = `${p.ori_vix} → ${c.ori_vix} <span style="color:${oriPct > 0 ? 'green' : (oriPct < 0 ? 'red' : 'gray')}">(${oriPct > 0 ? '+' : ''}${oriPct}%)</span>`;
+    document.getElementById('alert-display-vix').innerText = `${p.vix} → ${c.vix}`;
+
+    // --- 填充 Contribution 表格 ---
+    function renderContribTable(term, tbodyId) {
+        let tbody = document.getElementById(tbodyId);
+        tbody.innerHTML = '';
+        if (alertData.contributions && alertData.contributions[term]) {
+            alertData.contributions[term].forEach(row => {
+                let tr = document.createElement('tr');
+                // 如果右側有值(有改變)，加點淺底色高亮
+                if (row.has_changed) {
+                    tr.style.backgroundColor = '#fffbeb'; // 淺黃
+                }
+
+                let diffPctStr = row.contrib_diff_pct;
+                let diffVal = diffPctStr ? parseFloat(diffPctStr.replace('%', '')) : 0;
+                let diffColor = diffPctStr === "" ? '#555' : (diffVal > 0 ? '#198754' : (diffVal < 0 ? '#dc3545' : '#555'));
+
+                let weightDiffStr = row.weight_diff;
+                let weightDiffVal = weightDiffStr ? parseFloat(weightDiffStr.replace('%', '')) : 0;
+                let weightDiffColor = weightDiffStr === "" ? '#555' : (weightDiffVal > 0 ? '#198754' : (weightDiffVal < 0 ? '#dc3545' : '#555'));
+
+                tr.innerHTML = `
+                    <td style="font-weight:bold;">${row.strike}</td>
+                    <td style="color:#0d6efd;font-weight:bold;">${row.moneyness}</td>
+                    <td>${row.prev_mid}</td>
+                    <td>${row.curr_mid}</td>
+                    <td style="font-family:monospace; color:#888;">${row.prev_spread_ratio}</td>
+                    <td style="font-family:monospace;">${row.curr_spread_ratio}</td>
+                    <td style="font-family:monospace; color:#888;">${row.prev_contrib}</td>
+                    <td style="font-family:monospace;">${row.curr_contrib}</td>
+                    <td style="font-family:monospace; color:#888;">${row.prev_weight}</td>
+                    <td style="font-family:monospace;">${row.curr_weight}</td>
+                    <td style="color:${weightDiffColor}; font-weight:bold; font-family:monospace;">${weightDiffStr === "" ? "-" : weightDiffStr}</td>
+                    <td style="color:${diffColor}; font-weight:bold; font-family:monospace;">${diffPctStr === "" ? "-" : diffPctStr}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        if (tbody.innerHTML === '') {
+            tbody.innerHTML = '<tr><td colspan="12" style="color:#999; padding:20px;">無明細資料或無變化</td></tr>';
+        }
+    }
+
+    renderContribTable('Near', 'alert-near-tbody');
+    renderContribTable('Next', 'alert-next-tbody');
+
+    // 顯示 Modal
+    document.getElementById('alert-modal').style.display = 'flex';
 }
 
 // 載入序列快照 (左右兩側: Near, Next)
@@ -599,5 +774,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerEl = document.getElementById("modal-drag-header");
     if (modalEl && headerEl) {
         makeDraggable(modalEl, headerEl);
+    }
+
+    // Alert Modal
+    const alertModalEl = document.getElementById("alert-modal");
+    const alertHeaderEl = document.getElementById("alert-drag-header");
+    if (alertModalEl && alertHeaderEl) {
+        makeDraggable(alertModalEl, alertHeaderEl);
     }
 });

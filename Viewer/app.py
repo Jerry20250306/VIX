@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 from data_loader import DiffLoader, ProdLoader, SigmaDiffLoader
 from tick_parser import TickLoader
+from alert_loader import AlertLoader
 
 
 # 設定 template 和 static 資料夾路徑
@@ -26,6 +27,7 @@ diff_loader = DiffLoader(os.path.join(BASE_DIR, "output"))
 prod_loader = ProdLoader(os.path.join(BASE_DIR, "output"), os.path.join(BASE_DIR, "資料來源"))
 tick_loader = TickLoader(os.path.join(BASE_DIR, "資料來源"))
 sigma_diff_loader = SigmaDiffLoader(os.path.join(BASE_DIR, "資料來源"), os.path.join(BASE_DIR, "output"))
+alert_loader = AlertLoader(os.path.join(BASE_DIR, "資料來源"))
 
 @app.route("/")
 def index():
@@ -291,7 +293,26 @@ def api_vix_trend():
         df = df[["time", "vix", "ori_vix"]].copy()
         df = df.astype(object).where(pd.notnull(df), None)
         
+        
         return jsonify({"rows": df.to_dict(orient="records")})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/alerts")
+def get_alerts():
+    """取得特定日期所有 Alert 的時間點列表及解析後的完整內容"""
+    date = request.args.get("date")
+    if not date:
+        return jsonify({"error": "缺少參數 date"}), 400
+
+    try:
+        alerts = alert_loader.get_alerts_by_date(date)
+        return jsonify({
+            "date": date,
+            "alerts": alerts
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
