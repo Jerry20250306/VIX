@@ -263,6 +263,17 @@ def api_explore_ticks_stream():
             prepend_sysid=int(prepend_sysid) if prepend_sysid else None,
             append_sysid=int(append_sysid)   if append_sysid  else None,
         )
+        
+        # 標記 each snapshot 的 source
+        if "snapshots" in result:
+            for snap in result["snapshots"]:
+                try:
+                    ours = prod_loader.get_ours_row(date, term, snap["time_int"], int(strike))
+                    source = ours.get("c.source") if cp == "Call" else ours.get("p.source")
+                    snap["source"] = source
+                except Exception:
+                    snap["source"] = None
+
         return jsonify(result)
     except Exception as e:
         import traceback

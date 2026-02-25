@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIX 觀測站</title>
+    <title>VIX 觀測站 (企劃部) Beta版</title>
     <!-- ECharts CDN -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
@@ -143,7 +143,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>VIX 觀測站</h1>
+            <h1>VIX 觀測站 Beta版 (企劃部)</h1>
             <div class="controls">
                 <label for="date-selector">選擇日期：</label>
                 <select id="date-selector">
@@ -156,23 +156,46 @@
         <!-- 頁籤導覽 -->
         <div class="tab-bar" style="display: none;">
             <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 VIX走勢儀表板(MSCI方法)</button>
-            <button id="tab-diff" class="tab" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
-            <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 step0 行情查詢模式</button>
-            <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 step1 Sigma & VIX 總表</button>
+            <button id="tab-diff" class="tab" onclick="switchTab('diff')">📊 合格序列計算驗證</button>
+            <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 行情查詢模式 (step 0)</button>
+            <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 Sigma & VIX 總表 (step 1)</button>
         </div>
 
         <main>
             <!-- ===== 歡迎提示區塊 ===== -->
             <div id="welcome-panel" class="panel empty-state"
-                style="text-align: center; padding: 80px 20px; border: 2px dashed #dee2e6; background-color: #f8f9fa;">
+                style="text-align: center; padding: 60px 20px; border: 2px dashed #dee2e6; background-color: #f8f9fa;">
                 <div style="font-size: 64px; margin-bottom: 20px; opacity: 0.8;">📊</div>
-                <h2 style="color: #2c3e50; margin-bottom: 16px; font-weight: 600;">歡迎來到 VIX 驗證觀測站</h2>
-                <p style="color: #6c757d; font-size: 16px; margin-top: 0; line-height: 1.6;">
-                    請從右上方的 <strong>「選擇日期」</strong> 下拉選單中挑選一天，<br>
-                    即可開始檢視 <strong>差異清單</strong>、<strong>自由行情探勘</strong> 以及 <strong>Sigma & VIX 總表</strong>。
+                <h2 style="color: #2c3e50; margin-bottom: 16px; font-weight: 600;">歡迎來到 VIX 觀測站</h2>
+                <p style="color: #6c757d; font-size: 16px; margin-top: 0; line-height: 1.8; margin-bottom: 24px;">
+                    請從右上方的 <strong>「選擇日期」</strong> 下拉選單中挑選一天，即可啟用完整的資料比對與查詢功能：
                 </p>
-                <p style="color: #adb5bd; font-size: 14px; margin-top: 24px;">
-                    (若選單內無資料，請先在此環境執行對應的驗證腳本以產生 output 檔案)
+                <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+                    <div
+                        style="background: #fff; padding: 16px; border-radius: 8px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: left; width: 220px;">
+                        <h4 style="margin: 0 0 8px 0; color: #0d6efd; font-size: 15px;">📈 VIX走勢儀表板(MSCI方法)</h4>
+                        <p style="margin: 0; font-size: 13px; color: #666;">完整呈現當日 VIX 計算走勢，可任意擷取各時間點的序列報價快照與行情河流。</p>
+                    </div>
+                    <div
+                        style="background: #fff; padding: 16px; border-radius: 8px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: left; width: 220px;">
+                        <h4 style="margin: 0 0 8px 0; color: #198754; font-size: 15px;">📊 合格序列計算驗證</h4>
+                        <p style="margin: 0; font-size: 13px; color: #666;">提供完整合格序列資料，重點列出 Ours 與 PROD 的計算邏輯差異及原始 Tick
+                            變動細節。</p>
+                    </div>
+                    <div
+                        style="background: #fff; padding: 16px; border-radius: 8px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: left; width: 220px;">
+                        <h4 style="margin: 0 0 8px 0; color: #fd7e14; font-size: 15px;">🔍 行情查詢模式</h4>
+                        <p style="margin: 0; font-size: 13px; color: #666;">自由探勘特定時間、履約價的報價變動，還原 EMA 等各項關鍵指標的運算軌跡。</p>
+                    </div>
+                    <div
+                        style="background: #fff; padding: 16px; border-radius: 8px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: left; width: 220px;">
+                        <h4 style="margin: 0 0 8px 0; color: #6f42c1; font-size: 15px;">📈 Sigma & VIX 總表</h4>
+                        <p style="margin: 0; font-size: 13px; color: #666;">逐秒比對 Near / Next Sigma 變異數、原本 VIX 與即時計算 VIX
+                            的最終數值差異。</p>
+                    </div>
+                </div>
+                <p style="color: #adb5bd; font-size: 13px; margin-top: 32px;">
+                    (若選單內無資料日期，請先執行 Python 驗證腳本以產生對應的 output 歷史紀錄)
                 </p>
             </div>
 
@@ -206,7 +229,8 @@
                         style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                         <!-- 左側: Near Term -->
                         <div class="snapshot-col">
-                            <h3 style="text-align: center; color: #0d6efd;">Near Term</h3>
+                            <h3 style="text-align: center; color: #0d6efd;">Near Term<br><span
+                                    style="font-size: 14px; font-weight: normal; color: #555;">(近月契約)</span></h3>
                             <div class="table-container" style="max-height: 500px; overflow-y: auto;">
                                 <table class="snapshot-table" id="snapshot-near-table"
                                     style="font-size: 12px; width: 100%; text-align: center;">
@@ -235,7 +259,8 @@
 
                         <!-- 右側: Next Term -->
                         <div class="snapshot-col">
-                            <h3 style="text-align: center; color: #198754;">Next Term</h3>
+                            <h3 style="text-align: center; color: #198754;">Next Term<br><span
+                                    style="font-size: 14px; font-weight: normal; color: #555;">(次近月契約)</span></h3>
                             <div class="table-container" style="max-height: 500px; overflow-y: auto;">
                                 <table class="snapshot-table" id="snapshot-next-table"
                                     style="font-size: 12px; width: 100%; text-align: center;">

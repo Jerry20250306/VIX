@@ -27,8 +27,12 @@ async function init() {
             dateSelect.appendChild(opt);
         });
 
+        // 讀取已經記憶的日期
+        const savedDate = sessionStorage.getItem("vix_selectedDate");
+
         dateSelect.addEventListener("change", (e) => {
             if (e.target.value) {
+                sessionStorage.setItem("vix_selectedDate", e.target.value);
                 currentDate = e.target.value;
                 currentPage = 1;
                 // 重置篩選
@@ -39,11 +43,13 @@ async function init() {
                 document.getElementById("welcome-panel").style.display = "none";
                 document.querySelector(".tab-bar").style.display = "flex";
 
-                // 判斷當前處於哪個頁籤，若無則預設為 dashboard 或 diff
-                let activeTab = 'dashboard';
-                if (document.getElementById('tab-diff').classList.contains('active')) activeTab = 'diff';
-                if (document.getElementById('tab-explore').classList.contains('active')) activeTab = 'explore';
-                if (document.getElementById('tab-sigma') && document.getElementById('tab-sigma').classList.contains('active')) activeTab = 'sigma';
+                // 判斷當前處於哪個頁籤，優先讀取 session 記憶，若無則預設為 dashboard
+                let activeTab = sessionStorage.getItem("vix_selectedTab") || 'dashboard';
+
+                // 保險機制：若 session 存的頁籤不存在則退回預設
+                if (!['dashboard', 'diff', 'explore', 'sigma'].includes(activeTab)) {
+                    activeTab = 'dashboard';
+                }
 
                 // 觸發切換（會顯示該模式容器）
                 switchTab(activeTab);
@@ -62,10 +68,18 @@ async function init() {
                 document.getElementById("mode-explore").style.display = "none";
                 if (document.getElementById("mode-sigma")) document.getElementById("mode-sigma").style.display = "none";
 
+                sessionStorage.removeItem("vix_selectedDate");
+                sessionStorage.removeItem("vix_selectedTab");
                 currentDate = null;
                 clearPanels();
             }
         });
+
+        // 若有記憶的日期，觸發變更事件以自動載入
+        if (savedDate && data.dates.includes(savedDate)) {
+            dateSelect.value = savedDate;
+            dateSelect.dispatchEvent(new Event("change"));
+        }
 
         // 監聽欄位篩選
         colFilter.addEventListener("change", (e) => {

@@ -36,6 +36,9 @@ function switchTab(mode) {
     const isExplore = mode === "explore";
     const isSigma = mode === "sigma";
 
+    // 記憶目前選擇的頁籤
+    sessionStorage.setItem("vix_selectedTab", mode);
+
     if (document.getElementById("mode-dashboard")) {
         document.getElementById("mode-dashboard").style.display = isDashboard ? "" : "none";
     }
@@ -304,18 +307,40 @@ function renderTickStream() {
     }
 }
 
-function renderSnapDivider(snap) {
+function renderSnapDivider(snap, isModal = false) {
     const timeStr = formatTimeInt(snap.time_int);
     const isActive = snap.sysid === ExploreState.activeSnapSysid;
     const activeClass = isActive ? " active-divider" : "";
+
+    // 如果是 Modal (例如在 dashboard 的快照下鑽)，則不需要綁定跳轉算式的 onclick 與顯示提示
+    const onClickAttr = isModal ? "" : `onclick="onDividerClick(${snap.sysid}, ${snap.time_int})"`;
+    const infoSpan = isModal ? "" : `<span class="divider-snap-info">點擊查看算式</span>`;
+    const cursorStyle = isModal ? "cursor: default;" : "cursor: pointer;";
+
+    // 如果有 snapshot 來源標記，將其格式化加上下標顯示
+    let sourceHtml = "";
+    if (snap.source) {
+        let displaySource = snap.source;
+        if (displaySource.includes("Q_Last")) displaySource = "Q<sub>Last</sub>";
+        else if (displaySource.includes("Q_Min")) displaySource = "Q<sub>Min</sub>";
+        else if (displaySource.includes("Replacement")) displaySource = "之前有效報價 Q&#770;<sub>t-1</sub>";
+        else if (displaySource.includes("Q_hat")) displaySource = "Q&#770;";
+        else if (displaySource.includes("E_prev") || displaySource.includes("Eprev")) displaySource = "E<sub>prev</sub>";
+
+        // 調整顏色與分界線的黃/橘色系(#fffbea, #f0ad4e, #856404)相配，使用溫和的琥珀色配深棕橘色
+        sourceHtml = `<span style="margin-left: 12px; font-weight: 600; color: #b45f06; background: #fff8e1; padding: 2px 7px; border-radius: 4px; font-size: 12px; border: 1px solid #f9cb9c; box-shadow: inset 0 1px 1px rgba(255,255,255,0.5);">採用來源: ${displaySource}</span>`;
+    }
+
     return `
     <div class="snapshot-divider${activeClass}"
          data-sysid="${snap.sysid}"
          data-time-int="${snap.time_int}"
-         onclick="onDividerClick(${snap.sysid}, ${snap.time_int})">
+         ${onClickAttr}
+         style="${cursorStyle}">
         <span class="divider-time">▶ ${timeStr}</span>
         <span class="divider-sysid">SysID: ${snap.sysid}</span>
-        <span class="divider-snap-info">點擊查看算式</span>
+        ${sourceHtml}
+        ${infoSpan}
     </div>`;
 }
 
@@ -323,10 +348,13 @@ function renderTickRow(tick) {
     const spread = (tick.ask - tick.bid).toFixed(1);
     const invalidClass = tick.is_valid ? "" : " tick-invalid";
 
-    // tags badge：LAST / MIN
-    const tagBadges = (tick.tags || []).map(tag =>
-        `<span class="badge badge-${tag.toLowerCase()}">${tag}</span>`
-    );
+    // tags badge：LAST / MIN 轉換為帶下標的 Q_Last / Q_Min
+    const tagBadges = (tick.tags || []).map(tag => {
+        let displayTag = tag;
+        if (tag === 'LAST') displayTag = 'Q<sub>Last</sub>';
+        if (tag === 'MIN') displayTag = 'Q<sub>Min</sub>';
+        return `<span class="badge badge-${tag.toLowerCase()}">${displayTag}</span>`;
+    });
 
     // 錯誤 badge：E1: 報價為零 格式，時指漂显示完整說明
     const errorBadges = (tick.error_codes || []).map(ec => {

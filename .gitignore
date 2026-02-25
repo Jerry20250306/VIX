@@ -10,6 +10,7 @@ venv/
 
 # 生成的 CSV 檔案（排除所有 CSV）
 *.csv
+*.tsv
 
 # 生成的 HTML 報告
 step0_*.html
@@ -40,3 +41,4 @@ temp_*
 # 臨時文字檔
 vix_content_utf8.txt
 output/
+資料來源/

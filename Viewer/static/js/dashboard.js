@@ -620,14 +620,14 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
                     const snap = snapMap[snapSysids[snapIdx]];
                     // 注意：renderSnapDivider 需要配合 ExploreState.activeSnapSysid 高亮
                     // 這裡先簡單複用，可能會因為探索模式未啟用而沒黃色，但不影響顯示
-                    if (snap) fragments.push(renderSnapDivider(snap));
+                    if (snap) fragments.push(renderSnapDivider(snap, true));
                     snapIdx++;
                 }
                 fragments.push(renderTickRow(tick));
             });
             while (snapIdx < snapSysids.length) {
                 const snap = snapMap[snapSysids[snapIdx]];
-                if (snap) fragments.push(renderSnapDivider(snap));
+                if (snap) fragments.push(renderSnapDivider(snap, true));
                 snapIdx++;
             }
 
