@@ -60,6 +60,15 @@ function switchTab(mode) {
 
     if (isDashboard) {
         if (currentDate && typeof loadDashboardChart === "function") loadDashboardChart();
+    } else if (isDiff) {
+        // 如果是要查 diff 且全域變數存在，我們確保有載入（因為預設 dashboard 時可能不會載入）
+        if (currentDate && typeof loadDiffData === "function") {
+            const tbody = document.getElementById("diff-tbody");
+            // 如果 tbody 已經有資料就不重複打 API（簡單的緩存判斷）
+            if (!tbody || tbody.innerHTML.trim() === "") {
+                loadDiffData(currentDate, typeof currentPage !== 'undefined' ? currentPage : 1);
+            }
+        }
     } else if (isExplore) {
         ExploreState.date = currentDate;
         if (currentDate) exploreLoadOptions();

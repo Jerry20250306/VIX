@@ -24,6 +24,111 @@
             white-space: nowrap !important;
             overflow: visible !important;
         }
+
+        /* 頂部選擇器特別美化 */
+        header .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        header .controls label {
+            font-size: 16px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        #date-selector {
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            padding: 8px 16px;
+            border: 2px solid #ced4da;
+            border-radius: 6px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        #date-selector:hover {
+            border-color: #adb5bd;
+            background-color: #f8f9fa;
+        }
+
+        #date-selector:focus {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+        }
+
+        /* 懸浮視窗 (Draggable Floating Window) */
+        .floating-window {
+            position: fixed;
+            width: 90%;
+            max-width: 900px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #ced4da;
+            overflow: hidden;
+            /* 預設隱藏且於畫面正中 */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .floating-header {
+            cursor: grab;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            user-select: none;
+            /* 防止拖曳時反白文字 */
+        }
+
+        .floating-header:active {
+            cursor: grabbing;
+        }
+
+        /* 針對浮動視窗內的河流表格進行等寬排版修正與邊緣內縮 */
+        #tick-stream-modal .modal-body {
+            padding: 20px 30px !important;
+            /* 加大內邊距，避免字體切到邊框 */
+        }
+
+        #tick-stream-modal .t-time {
+            flex: 0 0 120px !important;
+        }
+
+        #tick-stream-modal .t-bid {
+            flex: 0 0 80px !important;
+        }
+
+        #tick-stream-modal .t-ask {
+            flex: 0 0 80px !important;
+        }
+
+        #tick-stream-modal .t-spread {
+            flex: 0 0 80px !important;
+        }
+
+        #tick-stream-modal .t-seqno {
+            flex: 0 0 90px !important;
+        }
+
+        #tick-stream-modal .t-badges {
+            flex: 0 0 250px !important;
+            /* 固定寬度，不要無限延伸 */
+        }
+
+        /* 若還有多餘空間，讓整行置中顯示 */
+        #tick-stream-modal .tick-stream-header,
+        #tick-stream-modal .tick-row {
+            justify-content: center;
+        }
     </style>
 </head>
 
@@ -42,7 +147,7 @@
 
         <!-- 頁籤導覽 -->
         <div class="tab-bar" style="display: none;">
-            <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 正式環境 VIX走勢儀表板</button>
+            <button id="tab-dashboard" class="tab active" onclick="switchTab('dashboard')">📈 VIX走勢儀表板</button>
             <button id="tab-diff" class="tab" onclick="switchTab('diff')">📊 step0 合格序列計算差異清單</button>
             <button id="tab-explore" class="tab" onclick="switchTab('explore')">🔍 step0 行情查詢模式</button>
             <button id="tab-sigma" class="tab" onclick="switchTab('sigma')">📈 step1 Sigma & VIX 總表</button>
@@ -63,19 +168,23 @@
                 </p>
             </div>
 
-            <!-- ===== 正式環境 VIX 走勢儀表板 ===== -->
+            <!-- ===== VIX 走勢儀表板 ===== -->
             <div id="mode-dashboard" style="display: none;">
                 <!-- 走勢圖區塊 -->
-                <section class="panel" style="margin-bottom: 20px;">
-                    <h2 style="margin-top: 0;">當日 VIX 走勢 (09:00:00 起)</h2>
-                    <div id="dashboard-chart" style="width: 100%; height: 400px;"></div>
+                <section class="panel" style="margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                        <h2 style="margin-top: 0;">當日 VIX 走勢 (09:00:00 起)</h2>
+                        <span style="font-size: 14px; color: rgba(55, 53, 47, 0.6); font-weight: 500;">💡
+                            點擊下方走勢圖任一時間點，即可開啟該區間的「序列合格報價快照」</span>
+                    </div>
+                    <div id="dashboard-chart" style="width: 100%; height: 500px;"></div>
                 </section>
 
-                <!-- 序列快照區塊 -->
+                <!-- 序列合格報價快照區塊 -->
                 <section id="dashboard-snapshot-panel" class="panel hidden">
                     <div style="display: flex; justify-content: space-between; align-items: baseline;">
                         <h2>
-                            序列快照
+                            序列合格報價快照
                             <button id="btn-snapshot-prev" class="btn-secondary" style="margin-left:10px;"
                                 onclick="navigateSnapshot(-1)">◀ 前一區間</button>
                             <span id="snapshot-time-label" style="font-size: 16px; color: #666; margin: 0 10px;"></span>
@@ -93,7 +202,7 @@
                             <div class="table-container" style="max-height: 500px; overflow-y: auto;">
                                 <table class="snapshot-table" id="snapshot-near-table"
                                     style="font-size: 12px; width: 100%; text-align: center;">
-                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
+                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 10;">
                                         <tr>
                                             <th>Call Bid</th>
                                             <th>Call Ask</th>
@@ -122,7 +231,7 @@
                             <div class="table-container" style="max-height: 500px; overflow-y: auto;">
                                 <table class="snapshot-table" id="snapshot-next-table"
                                     style="font-size: 12px; width: 100%; text-align: center;">
-                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
+                                    <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 10;">
                                         <tr>
                                             <th>Call Bid</th>
                                             <th>Call Ask</th>
@@ -148,39 +257,41 @@
                 </section>
             </div>
 
-            <!-- 行情河流 Modal -->
-            <div id="tick-stream-modal" class="modal-overlay" style="display: none;">
-                <div class="modal-content" style="width: 90%; max-width: 1000px;">
-                    <div class="modal-header">
+            <!-- 行情河流 懸浮視窗 -->
+            <div id="tick-stream-modal" class="floating-window" style="display: none;">
+                <!-- 移除了原本的 modal-content 包裝，讓 window 自己獨立 -->
+                <div class="modal-header floating-header" id="modal-drag-header"
+                    style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
                         <h3 id="modal-stream-title" style="margin: 0; display: inline-block;">行情河流</h3>
                         <div id="modal-stream-meta"
                             style="font-size: 13px; color: #666; display: inline-block; margin-left: 10px;"></div>
-                        <button class="modal-close" onclick="closeStreamModal()">&times;</button>
                     </div>
-                    <div class="modal-body" style="background: #f8f9fa; padding: 15px;">
-                        <button id="modal-btn-load-earlier" class="btn-load-more"
-                            onclick="exploreLoadMore('earlier', true)"
-                            style="display:none; width: 100%; margin-bottom: 10px;">
-                            ⬆ 載入更早
-                        </button>
+                    <button class="btn-secondary" onclick="closeStreamModal()"
+                        style="cursor: pointer; padding: 4px 12px; font-weight: bold;">關閉視窗 (X)</button>
+                </div>
+                <div class="modal-body" style="background: #f8f9fa; padding: 15px;">
+                    <button id="modal-btn-load-earlier" class="btn-load-more" onclick="exploreLoadMore('earlier', true)"
+                        style="display:none; width: 100%; margin-bottom: 10px;">
+                        ⬆ 載入更早
+                    </button>
 
-                        <div id="modal-stream-header" class="tick-stream-header" style="display:none;">
-                            <span class="t-time">時間</span>
-                            <span class="t-bid">Bid</span>
-                            <span class="t-ask">Ask</span>
-                            <span class="t-spread">Spread</span>
-                            <span class="t-seqno">SeqNo</span>
-                            <span class="t-badges" style="text-align:right;">標記</span>
-                        </div>
-
-                        <div id="modal-tick-stream" class="tick-stream-container"
-                            style="max-height: 50vh; overflow-y: auto;"></div>
-
-                        <button id="modal-btn-load-later" class="btn-load-more" onclick="exploreLoadMore('later', true)"
-                            style="display:none; width: 100%; margin-top: 10px;">
-                            ⬇ 載入更晚
-                        </button>
+                    <div id="modal-stream-header" class="tick-stream-header" style="display:none;">
+                        <span class="t-time">時間</span>
+                        <span class="t-bid">Bid</span>
+                        <span class="t-ask">Ask</span>
+                        <span class="t-spread">Spread</span>
+                        <span class="t-seqno">SeqNo</span>
+                        <span class="t-badges" style="text-align:right;">標記</span>
                     </div>
+
+                    <div id="modal-tick-stream" class="tick-stream-container"
+                        style="max-height: 50vh; overflow-y: auto;"></div>
+
+                    <button id="modal-btn-load-later" class="btn-load-more" onclick="exploreLoadMore('later', true)"
+                        style="display:none; width: 100%; margin-top: 10px;">
+                        ⬇ 載入更晚
+                    </button>
                 </div>
             </div>
 

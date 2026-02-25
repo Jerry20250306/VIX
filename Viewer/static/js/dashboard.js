@@ -13,11 +13,17 @@ function initDashboard() {
         if (chartDom) {
             vixChart = echarts.init(chartDom);
 
-            // 監聽圖表點擊事件
-            vixChart.on('click', function (params) {
-                if (params.data && params.data.time_str) {
-                    let time_str = params.data.time_str; // e.g. "091500"
-                    loadSnapshot(time_str);
+            // 讓整個圖表區域 (包含沒有畫點的垂直空間) 都能輕易捕捉點擊位置
+            vixChart.getZr().on('click', function (params) {
+                const pointInPixel = [params.offsetX, params.offsetY];
+                // 確保點擊落入表格有效範圍
+                if (vixChart.containPixel('grid', pointInPixel)) {
+                    // convertFromPixel 取得游標對應的 x 軸資料索引
+                    const xIndex = vixChart.convertFromPixel({ seriesIndex: 0 }, pointInPixel)[0];
+                    if (xIndex >= 0 && xIndex < dashboardTimes.length) {
+                        let time_str = dashboardTimes[xIndex];
+                        loadSnapshot(time_str);
+                    }
                 }
             });
         }
@@ -34,8 +40,14 @@ async function loadDashboardChart() {
     if (!date) return;
 
     document.getElementById('loading-indicator').style.display = 'inline';
+    if (vixChart) {
+        vixChart.showLoading({ text: '🔄 讀取走勢資料中...', color: '#dc3545', textColor: '#2c3e50', maskColor: 'rgba(255, 255, 255, 0.8)', fontSize: 18 });
+    }
 
     try {
+        // 加入 300ms 的視覺緩衝時間，讓 User 確實看見 Loading 提示，不會覺得畫面結凍
+        await new Promise(r => setTimeout(r, 300));
+
         const res = await fetch(`/api/vix_trend?date=${date}`);
         const data = await res.json();
 
@@ -54,6 +66,7 @@ async function loadDashboardChart() {
         console.error(e);
         alert("網路錯誤或 JSON 解析失敗");
     } finally {
+        if (vixChart) vixChart.hideLoading();
         document.getElementById('loading-indicator').style.display = 'none';
     }
 }
@@ -68,7 +81,7 @@ function renderVixChart(rows) {
     dashboardTimes = [];
 
     rows.forEach(row => {
-        // 格式化時間，例如 090000 -> 09:00:00
+        // 格式化時間，例如 090000 -> 09:00:00 (保留秒數給 tooltip，X軸另透過 formatter 截斷)
         let t = row.time.toString().padStart(6, '0');
         dashboardTimes.push(t);
         let formattedTime = `${t.substring(0, 2)}:${t.substring(2, 4)}:${t.substring(4, 6)}`;
@@ -87,10 +100,19 @@ function renderVixChart(rows) {
     let option = {
         tooltip: {
             trigger: 'axis',
-            axisPointer: { type: 'cross' }
+            axisPointer: {
+                type: 'cross',
+                label: { backgroundColor: '#37352f' }
+            },
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: 'rgba(55, 53, 47, 0.09)',
+            borderWidth: 1,
+            textStyle: { color: '#37352f', fontSize: 13 },
+            padding: 12,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
         },
         legend: {
-            data: ['PROD VIX', 'ORI VIX'],
+            data: ['VIX揭示值', 'VIX計算值'],
             top: 10
         },
         grid: {
@@ -102,12 +124,28 @@ function renderVixChart(rows) {
         xAxis: {
             type: 'category',
             boundaryGap: false,
-            data: times
+            data: times,
+            axisLine: { lineStyle: { color: 'rgba(55, 53, 47, 0.16)' } },
+            axisLabel: {
+                color: 'rgba(55, 53, 47, 0.65)',
+                fontSize: 13,
+                formatter: function (value) {
+                    return value.substring(0, 5); // 截掉秒數，只留 HH:MM
+                }
+            }
         },
         yAxis: {
             type: 'value',
             min: 'dataMin', // Y軸不要從0開始，比較容易看出波動
-            max: 'dataMax'
+            max: 'dataMax',
+            splitLine: { lineStyle: { color: 'rgba(55, 53, 47, 0.06)', type: 'dashed' } },
+            axisLabel: {
+                color: 'rgba(55, 53, 47, 0.65)',
+                fontSize: 13,
+                formatter: function (value) {
+                    return value.toFixed(1); // 強制小數點第一位
+                }
+            }
         },
         dataZoom: [
             {
@@ -124,33 +162,50 @@ function renderVixChart(rows) {
         ],
         series: [
             {
-                name: 'PROD VIX',
+                name: 'VIX揭示值',
                 type: 'line',
                 data: vixData,
-                smooth: true,
+                smooth: 0.3, // 更加平滑柔和
                 showSymbol: false,
                 lineStyle: {
                     width: 3,
-                    color: '#dc3545' // 醒目的紅色
+                    color: '#2383e2', // 高雅的科技藍
+                    shadowColor: 'rgba(35, 131, 226, 0.3)',
+                    shadowBlur: 10,
+                    shadowOffsetY: 5
                 },
                 itemStyle: {
-                    color: '#dc3545'
-                }
+                    color: '#2383e2'
+                },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(35, 131, 226, 0.2)' },
+                        { offset: 1, color: 'rgba(35, 131, 226, 0.01)' }
+                    ])
+                },
+                valueFormatter: function (value) {
+                    return value != null ? Number(value).toFixed(2) : '-';
+                },
+                z: 3 // 讓它蓋在計算值之上
             },
             {
-                name: 'ORI VIX',
+                name: 'VIX計算值',
                 type: 'line',
                 data: oriVixData,
-                smooth: true,
+                smooth: 0.3,
                 showSymbol: false,
                 lineStyle: {
                     width: 2,
-                    color: '#adb5bd',  // 灰色
-                    type: 'dashed'     // 虛線
+                    type: 'dashed', // 改為虛線，強調是理論上的"計算值"
+                    color: 'rgba(55, 53, 47, 0.35)' // 柔和的灰色透視感
                 },
                 itemStyle: {
-                    color: '#adb5bd'
-                }
+                    color: 'rgba(55, 53, 47, 0.4)'
+                },
+                valueFormatter: function (value) {
+                    return value != null ? Number(value).toFixed(2) : '-';
+                },
+                z: 2
             }
         ]
     };
@@ -174,7 +229,14 @@ async function loadSnapshot(time_str) {
     document.getElementById('snapshot-time-label').innerText = `(${formattedTime})`;
     document.getElementById('dashboard-snapshot-panel').classList.remove('hidden');
 
+    // 加入更明顯的載入中樣式於表格內
+    document.getElementById('snapshot-near-tbody').innerHTML = '<tr><td colspan="8" style="padding: 40px; font-size: 16px; font-weight: bold; color: #0d6efd; text-align: center;">🔄 讀取與計算排列中，請稍候...</td></tr>';
+    document.getElementById('snapshot-next-tbody').innerHTML = '<tr><td colspan="8" style="padding: 40px; font-size: 16px; font-weight: bold; color: #198754; text-align: center;">🔄 讀取與計算排列中，請稍候...</td></tr>';
+
     try {
+        // 加入視覺緩衝時間確保畫面渲染，避免資料庫或本地瞬間回傳導致閃爍而不自知
+        await new Promise(r => setTimeout(r, 300));
+
         const res = await fetch(`/api/snapshot?date=${date}&time_int=${time_str}`);
         const data = await res.json();
 
@@ -212,11 +274,30 @@ function renderSnapshotTable(rows, term, tbodyId) {
             tr.classList.add('snapshot-row-atm');
         }
 
-        // 點擊事件：下鑽看行情河流 (使用現有的 tick-stream 邏輯，但放在 modal 裡)
-        // 注意：這裡固定使用該列的 time 作為基準，這可能與探勘模式所需參數相似
+        // 點擊事件：下鑽看行情河流 
         tr.style.cursor = 'pointer';
-        tr.onclick = function () {
-            openStreamModal(term, row.strike, row.time.toString());
+        tr.onclick = function (e) {
+            let targetCp = 'Call';
+            if (row.is_atm) {
+                // 若為價平，透過點擊的欄位(td)索引來判斷使用者想看 Call 還是 Put
+                let clickedTd = e.target.closest('td');
+                if (clickedTd) {
+                    // index 0~2 是 Call, 3 是 Strike, 4~6 是 Put, 7 是 Contrib
+                    if (clickedTd.cellIndex >= 4) {
+                        targetCp = 'Put';
+                    } else {
+                        targetCp = 'Call';
+                    }
+                }
+            } else {
+                // 非價平：預設嘗試開啟有報價的那一邊
+                if (row['c.bid'] != null && row['c.bid'] !== 'X') {
+                    targetCp = 'Call';
+                } else if (row['p.bid'] != null && row['p.bid'] !== 'X') {
+                    targetCp = 'Put';
+                }
+            }
+            openStreamModal(term, row.strike, row.time.toString(), targetCp);
         };
 
         const formatPrice = (val) => (val == null || val === 'X' || val === 'NaN' || val === '') ? '' : Number(val).toFixed(4);
@@ -302,7 +383,7 @@ let currentModalStream = {
     date: '', term: '', strike: '', time_int: ''
 };
 
-function openStreamModal(term, strike, time_int) {
+function openStreamModal(term, strike, time_int, targetCp = 'Call') {
     const date = document.getElementById('date-selector').value;
     if (!date) return;
 
@@ -312,6 +393,11 @@ function openStreamModal(term, strike, time_int) {
     document.getElementById('modal-stream-meta').innerText = `(${term} Term, Strike: ${strike}, 基期時間: ${formattedTime})`;
 
     document.getElementById('tick-stream-modal').style.display = 'flex';
+    // 每次打開時重置回中央位置與原本的尺寸 (清掉 dragging 造成的 inline 污染)
+    document.getElementById('tick-stream-modal').style.top = '50%';
+    document.getElementById('tick-stream-modal').style.left = '50%';
+    document.getElementById('tick-stream-modal').style.transform = 'translate(-50%, -50%)';
+
     document.getElementById('modal-stream-header').style.display = 'flex';
 
     // 清空並載入
@@ -321,20 +407,7 @@ function openStreamModal(term, strike, time_int) {
     document.getElementById('modal-btn-load-earlier').style.display = 'none';
     document.getElementById('modal-btn-load-later').style.display = 'none';
 
-    // 呼叫既有的 API (同時附帶 CP 其實不重要，因為我們在前後台會展示所有 tick)
-    // 但 tick_loader.query_stream 會傳回連續行情，我們可以稍微封裝
-    // 因為底層 API 必須帶 CP (在 get_stream 時用來分組)
-    // 為了展示兩邊，我們這裡 Call 跟 Put 是分開兩條河流嗎？其實一般是一個選項
-
-    // 因為你的 "行情河流" API (`/api/explore/ticks_stream`) 需要 CP，我們選擇預設先載入 Call ?
-    // 如果想要同時呈現，也可以。依照原本設計，我們可能需要做個小切換，但這裡為了簡化，
-    // 我先判斷是 Call 邊有價還是 Put 邊有價。以 Out-Of-The-Money 優先！
-
-    let defaultCp = 'Call';
-    // 簡單判斷：如果 Strike > (假設一個目前指數 21000)，我們抓 Call。這並不完美。
-    // 或我們也可以給一個提示。
-
-    fetchStreamDataForModal(defaultCp);
+    fetchStreamDataForModal(targetCp);
 }
 
 function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
@@ -357,27 +430,69 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
                 return;
             }
 
-            // 復用 explorer.js 裡的渲染函式
-            // 但因為 explorer.js 寫死了 document.getElementById("ex-tick-stream")
-            // 我們需要直接將 data.html 塞給 modal
+            // The backend returns { ticks: [], snapshots: [], range: [min, max] }
+            let ticks = data.ticks || [];
+            let snapshots = data.snapshots || [];
+            let fragments = [];
+
+            const snapMap = {};
+            snapshots.forEach(s => { snapMap[s.sysid] = s; });
+            const snapSysids = snapshots.map(s => s.sysid).sort((a, b) => a - b);
+            let snapIdx = 0;
+
+            ticks.forEach(tick => {
+                while (snapIdx < snapSysids.length && snapSysids[snapIdx] <= tick.seqno) {
+                    const snap = snapMap[snapSysids[snapIdx]];
+                    // 注意：renderSnapDivider 需要配合 ExploreState.activeSnapSysid 高亮
+                    // 這裡先簡單複用，可能會因為探索模式未啟用而沒黃色，但不影響顯示
+                    if (snap) fragments.push(renderSnapDivider(snap));
+                    snapIdx++;
+                }
+                fragments.push(renderTickRow(tick));
+            });
+            while (snapIdx < snapSysids.length) {
+                const snap = snapMap[snapSysids[snapIdx]];
+                if (snap) fragments.push(renderSnapDivider(snap));
+                snapIdx++;
+            }
+
+            let htmlContent = fragments.join("");
+            if (!htmlContent) {
+                htmlContent = '<div style="padding: 20px; text-align: center; color: #888;">查無報價行情資料</div>';
+            }
 
             if (prependSysId) {
                 // 往上增加
                 const oldScroll = document.getElementById('modal-tick-stream').scrollHeight;
-                document.getElementById('modal-tick-stream').insertAdjacentHTML('afterbegin', data.html);
+                document.getElementById('modal-tick-stream').insertAdjacentHTML('afterbegin', htmlContent);
                 const newScroll = document.getElementById('modal-tick-stream').scrollHeight;
                 document.getElementById('modal-tick-stream').scrollTop = newScroll - oldScroll;
             } else if (appendSysId) {
                 // 往下增加
-                document.getElementById('modal-tick-stream').insertAdjacentHTML('beforeend', data.html);
+                document.getElementById('modal-tick-stream').insertAdjacentHTML('beforeend', htmlContent);
             } else {
                 // 初次載入
-                document.getElementById('modal-tick-stream').innerHTML = data.html;
-                // 自動轉向中間
+                document.getElementById('modal-tick-stream').innerHTML = htmlContent;
+                // 自動轉向距離目前設定時間最近的 divider
                 setTimeout(() => {
-                    const snapDiv = document.querySelector('#modal-tick-stream .active-divider');
-                    if (snapDiv) {
-                        snapDiv.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    const snapDivs = Array.from(document.querySelectorAll('#modal-tick-stream .snapshot-divider'));
+                    let bestDiv = null;
+                    let minDiff = Infinity;
+                    let targetTime = parseInt(time_int, 10);
+
+                    snapDivs.forEach(div => {
+                        let divTime = parseInt(div.dataset.timeInt, 10);
+                        if (!isNaN(divTime) && Math.abs(divTime - targetTime) < minDiff) {
+                            minDiff = Math.abs(divTime - targetTime);
+                            bestDiv = div;
+                        }
+                    });
+
+                    if (bestDiv) {
+                        bestDiv.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                        // 使該 divider 高亮
+                        document.querySelectorAll('#modal-tick-stream .snapshot-divider').forEach(el => el.classList.remove('active-divider'));
+                        bestDiv.classList.add('active-divider');
                     }
                 }, 100);
             }
@@ -386,16 +501,21 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
             const btnEarly = document.getElementById('modal-btn-load-earlier');
             const btnLater = document.getElementById('modal-btn-load-later');
 
-            if (data.min_sysid && data.min_sysid > 0) {
+            // 後端回傳的是 {"range": [min_sysid, max_sysid]}
+            let range = data.range || [0, 0];
+            let minSysid = range[0];
+            let maxSysid = range[1];
+
+            if (minSysid && minSysid > 0) {
                 btnEarly.style.display = 'block';
-                btnEarly.onclick = () => fetchStreamDataForModal(cp, data.min_sysid, null);
+                btnEarly.onclick = () => fetchStreamDataForModal(cp, minSysid - 1, null);
             } else {
                 btnEarly.style.display = 'none';
             }
 
-            if (data.max_sysid) {
+            if (maxSysid && maxSysid > 0) {
                 btnLater.style.display = 'block';
-                btnLater.onclick = () => fetchStreamDataForModal(cp, null, data.max_sysid);
+                btnLater.onclick = () => fetchStreamDataForModal(cp, null, maxSysid + 1);
             } else {
                 btnLater.style.display = 'none';
             }
@@ -409,3 +529,75 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
 function closeStreamModal() {
     document.getElementById('tick-stream-modal').style.display = 'none';
 }
+
+/* ===================================================
+   浮動視窗拖曳邏輯 (Draggable Floating Window)
+   =================================================== */
+function makeDraggable(elmnt, header) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+    if (header) {
+        // 如果有傳入 header，則只有點擊 header 才能拖曳
+        header.onmousedown = dragMouseDown;
+    } else {
+        elmnt.onmousedown = dragMouseDown;
+    }
+
+    function dragMouseDown(e) {
+        e = e || window.event;
+
+        // 修正：如果視窗尚未被拖曳過（存在 transform 置中屬性），
+        // 必須先鎖定它當前畫面上的真實絕對座標，然後再把 transform 移除，否則一拖曳就會往右下方瞬間閃現 (偏移 50% 的自身寬高)。
+        if (window.getComputedStyle(elmnt).transform !== 'none') {
+            const rect = elmnt.getBoundingClientRect();
+            elmnt.style.transform = 'none';
+            elmnt.style.left = rect.left + 'px';
+            elmnt.style.top = rect.top + 'px';
+        }
+
+        // 取消原生的反白與拖曳行為
+        e.preventDefault();
+
+        // 取得滑鼠按下時的初始位置
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        document.onmouseup = closeDragElement;
+        // 綁定滑鼠移動事件
+        document.onmousemove = elementDrag;
+    }
+
+    function elementDrag(e) {
+        e = e || window.event;
+        e.preventDefault();
+        // 計算游標的新位置
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+
+        // 設定元素的新位置
+        let newTop = elmnt.offsetTop - pos2;
+        let newLeft = elmnt.offsetLeft - pos1;
+
+        // 防止防出螢幕上方
+        if (newTop < 0) newTop = 0;
+
+        elmnt.style.top = newTop + "px";
+        elmnt.style.left = newLeft + "px";
+    }
+
+    function closeDragElement() {
+        // 釋放滑鼠按鈕時停止移動
+        document.onmouseup = null;
+        document.onmousemove = null;
+    }
+}
+
+// 初始化拖曳功能
+document.addEventListener('DOMContentLoaded', () => {
+    const modalEl = document.getElementById("tick-stream-modal");
+    const headerEl = document.getElementById("modal-drag-header");
+    if (modalEl && headerEl) {
+        makeDraggable(modalEl, headerEl);
+    }
+});
