@@ -20,12 +20,37 @@ const ExploreState = {
     allTimes: [],          // 該 date+term 所有可用的 time_int 清單（供 ±15s 用）
 };
 
-// 錯誤代碼對應中文說明字典
+// 錯誤代碼對應中文說明字典 (對齊 check_valid_quote)
 const ERROR_LABELS = {
-    "E1": "報價為零",
-    "E2": "價差過大",
-    "E3": "離群值(Outlier)",
+    "E1": "Bid < 0",
+    "E2": "Ask ≤ Bid",
 };
+
+// Outlier 判定條件代碼 → 中文說明
+const OUTLIER_LABELS = {
+    "1": "價差 ≤ γ×EMA",
+    "2": "價差 ≤ λ(15)",
+    "3": "買價突破前期中價",
+    "4": "賣價跌破前期中價",
+    "5": "當日首筆",
+    "6": "前期EMA為空",
+    "V": "異常值(Outlier)",
+    "-": "無資料",
+};
+
+/**
+ * 將 Outlier 代碼 (如 "1,2" 或 "V") 轉換為中文 badge HTML
+ */
+function renderOutlierBadge(outlierCode) {
+    if (!outlierCode || outlierCode === "-") return "";
+    if (outlierCode === "V") {
+        return `<span class="badge badge-outlier-fail" title="不符合任一非異常值條件">❌ ${OUTLIER_LABELS["V"]}</span>`;
+    }
+    // 非異常：可能是 "1,2" 或 "5" 等
+    const codes = outlierCode.split(",");
+    const labels = codes.map(c => OUTLIER_LABELS[c.trim()] || c.trim()).join(", ");
+    return `<span class="badge badge-outlier-pass" title="通過條件: ${outlierCode}">✅ ${labels}</span>`;
+}
 
 // ===================================================================
 // 頁籤切換
@@ -286,6 +311,14 @@ function renderTickStream() {
             if (snap) fragments.push(renderSnapDivider(snap));
             snapIdx++;
         }
+        // 將當前區間的 Outlier 判定結果注入到 LAST/MIN 標記的 Tick
+        if (tick.tags && tick.tags.length > 0 && snapIdx > 0) {
+            const currentSnap = snapMap[snapSysids[snapIdx - 1]];
+            if (currentSnap) {
+                if (tick.tags.includes('LAST')) tick.outlier_last = currentSnap.last_outlier;
+                if (tick.tags.includes('MIN')) tick.outlier_min = currentSnap.min_outlier;
+            }
+        }
         fragments.push(renderTickRow(tick));
     });
 
@@ -356,13 +389,22 @@ function renderTickRow(tick) {
         return `<span class="badge badge-${tag.toLowerCase()}">${displayTag}</span>`;
     });
 
-    // 錯誤 badge：E1: 報價為零 格式，時指漂显示完整說明
+    // 錯誤 badge：E1/E2 格式
     const errorBadges = (tick.error_codes || []).map(ec => {
         const label = ERROR_LABELS[ec] ? `${ec}: ${ERROR_LABELS[ec]}` : ec;
         return `<span class="badge badge-error" title="${label}">${label}</span>`;
     });
 
-    const badgesHtml = [...tagBadges, ...errorBadges].join("");
+    // Outlier 判定 badge：僅在有 LAST 或 MIN 標記時顯示
+    let outlierBadges = "";
+    if (tick.tags && tick.tags.includes('LAST') && tick.outlier_last !== undefined) {
+        outlierBadges += renderOutlierBadge(tick.outlier_last);
+    }
+    if (tick.tags && tick.tags.includes('MIN') && tick.outlier_min !== undefined) {
+        outlierBadges += renderOutlierBadge(tick.outlier_min);
+    }
+
+    const badgesHtml = [...tagBadges, ...errorBadges].join("") + outlierBadges;
 
     return `
     <div class="tick-row${invalidClass}">

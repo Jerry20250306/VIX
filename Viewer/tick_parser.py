@@ -207,34 +207,27 @@ class TickLoader:
     # ===================================================================
     # 連續河流查詢（探勘面板用）
     # ===================================================================
-    # 有效報價的 Spread 上限（對應 step0_valid_quotes.py 的設定）
-    MAX_SPREAD = 24.0
+
 
     def query_stream(self, date, term, strike, cp,
                      sysid_map,
-                     center_sysid, num_intervals=2,
+                     center_sysid, lookback=1, lookforward=1,
                      prepend_sysid=None, append_sysid=None):
         """連續河流查詢
 
         參數:
             sysid_map   : {time_int: snapshot_sysID} 字典（由 ProdLoader.build_sysid_map() 提供）
             center_sysid: 目標 Snapshot 的 SysID
-            num_intervals: 在 center_sysid 左右各載入幾個區間
+            lookback    : 在 center_sysid 之前載入幾個區間 (預設 1)
+            lookforward : 在 center_sysid 之後載入幾個區間 (預設 1)
             prepend_sysid: 指定更早的起始 SysID（用於「載入更早」擴充）
             append_sysid : 指定更晚的結束 SysID（用於「載入更晚」擴充）
 
         回傳:
             {
               "prod_id": "TXO22000X5",
-              "ticks": [
-                {"time": ..., "time_display": ..., "bid": ..., "ask": ...,
-                 "seqno": ..., "is_valid": bool, "tags": [], "error_codes": []},
-                ...
-              ],
-              "snapshots": [
-                {"time_int": 84515, "sysid": 18505},
-                ...
-              ],
+              "ticks": [...],
+              "snapshots": [...],
               "range": [min_sysid, max_sysid]
             }
         """
@@ -264,10 +257,12 @@ class TickLoader:
 
             # ---------------------------------------------------------------
             # 動態 Anchor 定位：
-            #   - prepend_sysid → 找最接近的 snap 作為右邊界，往前擴 num_intervals 個區間
-            #   - append_sysid  → 找最接近的 snap 作為左邊界，往後擴 num_intervals 個區間
-            #   - 否則以 center_sysid 置中
+            #   - prepend_sysid → 找最接近的 snap 作為右邊界，往前擴 lookback+lookforward 個區間
+            #   - append_sysid  → 找最接近的 snap 作為左邊界，往後擴 lookback+lookforward 個區間
+            #   - 否則以 center_sysid 為中心
             # ---------------------------------------------------------------
+            total_req_intervals = int(lookback) + int(lookforward)
+            
             if prepend_sysid is not None:
                 # 找不超過 prepend_sysid 的最後一個 snap 作為右邊界
                 anchor_idx = 0
@@ -277,7 +272,7 @@ class TickLoader:
                     else:
                         break
                 end_idx   = anchor_idx
-                start_idx = max(0, end_idx - num_intervals * 2)
+                start_idx = max(0, end_idx - total_req_intervals)
             elif append_sysid is not None:
                 # 找不小於 append_sysid 的第一個 snap 作為左邊界
                 anchor_idx = len(snap_sysids) - 1
@@ -286,16 +281,18 @@ class TickLoader:
                         anchor_idx = i
                         break
                 start_idx = anchor_idx
-                end_idx   = min(len(sorted_snaps) - 1, start_idx + num_intervals * 2)
+                end_idx   = min(len(sorted_snaps) - 1, start_idx + total_req_intervals)
             else:
-                # 一般搜尋：以 center_sysid 置中
+                # 一般搜尋：以 center_sysid 為基準
                 try:
                     center_idx = snap_sysids.index(center_sysid)
                 except ValueError:
                     center_idx = min(range(len(snap_sysids)),
                                      key=lambda i: abs(snap_sysids[i] - center_sysid))
-                start_idx = max(0, center_idx - num_intervals)
-                end_idx   = min(len(sorted_snaps) - 1, center_idx + num_intervals)
+                
+                # 這裡是核心優化：如果 lookforward=0，則當前 snapshot 就是視窗的結束
+                start_idx = max(0, center_idx - int(lookback))
+                end_idx   = min(len(sorted_snaps) - 1, center_idx + int(lookforward))
 
             # 本次視窗的實際 SysID 範圍（以 snap 邊界對齊）
             range_start_sysid = (
@@ -403,14 +400,19 @@ class TickLoader:
         return len(interval_snaps) - 1
 
     def _check_valid(self, bid, ask):
-        """判斷一筆 Tick 是否有效，並回傳半、錯誤碼清單
-        E1: 報價為零 (Bid <= 0 或 Ask <= 0)
-        E2: Spread 超出上限
+        """判斷一筆 Tick 是否為有效報價 (Valid Quote)
+        對齊計算引擎 step0_valid_quotes.py 的 check_valid_quote 邏輯：
+          1. 買價、賣價須為數字 (上游 _format_row 已處理)
+          2. 買價 >= 0
+          3. 賣價 > 買價
+        
+        E1: Bid < 0
+        E2: Ask ≤ Bid (包含 Ask=0 且 Bid=0 的情況)
         """
         error_codes = []
-        if bid <= 0 or ask <= 0:
+        if bid < 0:
             error_codes.append("E1")
-        if ask - bid > self.MAX_SPREAD:
+        if ask <= bid:
             error_codes.append("E2")
         is_valid = len(error_codes) == 0
         return is_valid, error_codes

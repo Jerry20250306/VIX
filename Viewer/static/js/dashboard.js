@@ -11,7 +11,9 @@ function initDashboard() {
     if (!vixChart) {
         let chartDom = document.getElementById('dashboard-chart');
         if (chartDom) {
-            vixChart = echarts.init(chartDom);
+            // 讀取當前主題
+            const theme = document.documentElement.getAttribute('data-theme') || 'apple';
+            vixChart = echarts.init(chartDom, theme === 'bloomberg' ? 'dark' : null);
 
             // 讓整個圖表區域 (包含沒有畫點的垂直空間) 都能輕易捕捉點擊位置
             vixChart.getZr().on('click', function (params) {
@@ -102,22 +104,27 @@ function renderVixChart(rows, alerts) {
         });
     });
 
+    // 獲取當前 CSS 變數值
+    const getCssVar = (varName) => getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    const accentColor = getCssVar('--accent-color') || '#007aff';
+    const secondaryTextColor = getCssVar('--secondary-text') || '#787774';
+
     let option = {
         tooltip: {
             trigger: 'axis',
             formatter: function (params) {
-                let html = `<div style="font-weight:bold;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:4px;">${params[0].axisValue}</div>`;
+                let html = `<div style="font-weight:bold;margin-bottom:8px;border-bottom:1px solid var(--border-color);padding-bottom:4px;color:var(--text-color);">${params[0].axisValue}</div>`;
                 let alertHtml = "";
 
                 params.forEach(p => {
                     if (p.seriesName === 'Alert') {
-                        alertHtml += `<div style="margin-top: 8px; padding: 6px 8px; background-color: #f8dbd9; border: 1px solid #e03e3e; border-radius: 4px; color: #a41515;">
+                        alertHtml += `<div style="margin-top: 8px; padding: 6px 8px; background-color: rgba(224, 62, 62, 0.2); border: 1px solid #e03e3e; border-radius: 4px; color: #e03e3e;">
                             <strong>${p.data.tooltipLabel}</strong><br>
-                            <span style="font-size:12px; color:#555;">(點擊閃爍紅點查看報告明細)</span>
+                            <span style="font-size:12px; color:#787774;">(點擊閃爍紅點查看報告明細)</span>
                         </div>`;
                     } else if (p.value !== null && p.value !== undefined) {
                         let val = Number(p.value).toFixed(2);
-                        html += `<div>${p.marker} ${p.seriesName}: <span style="font-weight:bold; float:right; margin-left:15px;">${val}</span></div>`;
+                        html += `<div>${p.marker} <span style="color:#37352f;">${p.seriesName}:</span> <span style="font-weight:bold; float:right; margin-left:15px; color:#37352f;">${val}</span></div>`;
                     }
                 });
 
@@ -125,7 +132,7 @@ function renderVixChart(rows, alerts) {
             },
             axisPointer: {
                 type: 'cross',
-                label: { backgroundColor: '#37352f' }
+                label: { backgroundColor: '#333' }
             },
             backgroundColor: 'rgba(255, 255, 255, 0.95)',
             borderColor: 'rgba(55, 53, 47, 0.09)',
@@ -136,7 +143,8 @@ function renderVixChart(rows, alerts) {
         },
         legend: {
             data: ['VIX揭示值', 'VIX計算值'],
-            top: 10
+            top: 10,
+            textStyle: { color: secondaryTextColor }
         },
         grid: {
             left: '3%',
@@ -148,9 +156,9 @@ function renderVixChart(rows, alerts) {
             type: 'category',
             boundaryGap: false,
             data: times,
-            axisLine: { lineStyle: { color: 'rgba(55, 53, 47, 0.16)' } },
+            axisLine: { lineStyle: { color: '#ededed' } },
             axisLabel: {
-                color: 'rgba(55, 53, 47, 0.65)',
+                color: '#787774',
                 fontSize: 13,
                 formatter: function (value) {
                     return value.substring(0, 5); // 截掉秒數，只留 HH:MM
@@ -161,9 +169,9 @@ function renderVixChart(rows, alerts) {
             type: 'value',
             min: 'dataMin', // Y軸不要從0開始，比較容易看出波動
             max: 'dataMax',
-            splitLine: { lineStyle: { color: 'rgba(55, 53, 47, 0.06)', type: 'dashed' } },
+            splitLine: { lineStyle: { color: '#ededed', type: 'dashed' } },
             axisLabel: {
-                color: 'rgba(55, 53, 47, 0.65)',
+                color: '#787774',
                 fontSize: 13,
                 formatter: function (value) {
                     return value.toFixed(1); // 強制小數點第一位
@@ -180,7 +188,8 @@ function renderVixChart(rows, alerts) {
                 start: 0,
                 end: 100,
                 height: 15, // 底部拖拉條
-                bottom: 5
+                bottom: 5,
+                textStyle: { color: secondaryTextColor }
             }
         ],
         series: [
@@ -188,28 +197,29 @@ function renderVixChart(rows, alerts) {
                 name: 'VIX揭示值',
                 type: 'line',
                 data: vixData,
-                smooth: 0.3, // 更加平滑柔和
+                smooth: 0.3,
                 showSymbol: false,
                 lineStyle: {
                     width: 3,
-                    color: '#2383e2', // 高雅的科技藍
-                    shadowColor: 'rgba(35, 131, 226, 0.3)',
+                    color: accentColor,
+                    shadowColor: 'rgba(0, 0, 0, 0.2)',
                     shadowBlur: 10,
                     shadowOffsetY: 5
                 },
                 itemStyle: {
-                    color: '#2383e2'
+                    color: accentColor
                 },
                 areaStyle: {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: 'rgba(35, 131, 226, 0.2)' },
-                        { offset: 1, color: 'rgba(35, 131, 226, 0.01)' }
-                    ])
+                        { offset: 0, color: accentColor },
+                        { offset: 1, color: 'transparent' }
+                    ], false),
+                    opacity: 0.2
                 },
                 valueFormatter: function (value) {
                     return value != null ? Number(value).toFixed(2) : '-';
                 },
-                z: 3 // 讓它蓋在計算值之上
+                z: 3
             },
             {
                 name: 'VIX計算值',
@@ -219,11 +229,11 @@ function renderVixChart(rows, alerts) {
                 showSymbol: false,
                 lineStyle: {
                     width: 2,
-                    type: 'dashed', // 改為虛線，強調是理論上的"計算值"
-                    color: 'rgba(55, 53, 47, 0.35)' // 柔和的灰色透視感
+                    type: 'dashed',
+                    color: secondaryTextColor
                 },
                 itemStyle: {
-                    color: 'rgba(55, 53, 47, 0.4)'
+                    color: secondaryTextColor
                 },
                 valueFormatter: function (value) {
                     return value != null ? Number(value).toFixed(2) : '-';
@@ -277,6 +287,7 @@ function renderVixChart(rows, alerts) {
         });
 
         // 綁定效果點 click 顯示 modal
+        vixChart.off('click'); // 避免重複綁定
         vixChart.on('click', function (params) {
             if (params.seriesName === 'Alert') {
                 showAlertModal(params.data.alertData);
@@ -284,9 +295,13 @@ function renderVixChart(rows, alerts) {
                 params.event.event.stopPropagation();
             }
         });
+    } else {
+        // 如果當天沒有 alert，也要清除舊的點擊事件
+        vixChart.off('click');
     }
 
-    vixChart.setOption(option);
+    // 第二個參數為 true 表示不與上一次的設定合併，確保舊的 alert 序列被清除
+    vixChart.setOption(option, true);
 }
 
 // 供 Alert Modal 內部切換 Tab 使用
@@ -594,8 +609,15 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
     document.getElementById('modal-stream-meta').innerText = `(${term} Term, Strike: ${strike}, ${cp}, 基期: ${time_int})`;
 
     let url = `/api/explore/ticks_stream?date=${date}&term=${term}&strike=${strike}&cp=${cp}&time_int=${time_int}`;
-    if (prependSysId) url += `&prepend_sysid=${prependSysId}`;
-    if (appendSysId) url += `&append_sysid=${appendSysId}`;
+
+    if (prependSysId) {
+        url += `&prepend_sysid=${prependSysId}&lookback=2&lookforward=0`;
+    } else if (appendSysId) {
+        url += `&append_sysid=${appendSysId}&lookback=0&lookforward=2`;
+    } else {
+        // Dashboard 點開的行情河流：只看「當前 + 前一個」區間
+        url += `&lookback=1&lookforward=0`;
+    }
 
     fetch(url)
         .then(res => res.json())
@@ -622,6 +644,14 @@ function fetchStreamDataForModal(cp, prependSysId = null, appendSysId = null) {
                     // 這裡先簡單複用，可能會因為探索模式未啟用而沒黃色，但不影響顯示
                     if (snap) fragments.push(renderSnapDivider(snap, true));
                     snapIdx++;
+                }
+                // 將當前區間的 Outlier 判定結果注入到 LAST/MIN 標記的 Tick
+                if (tick.tags && tick.tags.length > 0 && snapIdx > 0) {
+                    const currentSnap = snapMap[snapSysids[snapIdx - 1]];
+                    if (currentSnap) {
+                        if (tick.tags.includes('LAST')) tick.outlier_last = currentSnap.last_outlier;
+                        if (tick.tags.includes('MIN')) tick.outlier_min = currentSnap.min_outlier;
+                    }
                 }
                 fragments.push(renderTickRow(tick));
             });

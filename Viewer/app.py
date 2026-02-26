@@ -235,6 +235,8 @@ def api_explore_ticks_stream():
     time_int    = request.args.get("time_int")  # HMMSS  或 HHMMSS
     prepend_sysid = request.args.get("prepend_sysid")
     append_sysid  = request.args.get("append_sysid")
+    lookback      = request.args.get("lookback", 1)
+    lookforward   = request.args.get("lookforward", 1)
 
     if not all([date, term, strike, cp, time_int]):
         return jsonify({"error": "缺少參數: date/term/strike/cp/time_int"}), 400
@@ -259,20 +261,29 @@ def api_explore_ticks_stream():
             cp=cp,
             sysid_map=sysid_map,
             center_sysid=center_sysid,
-            num_intervals=2,
+            lookback=int(lookback),
+            lookforward=int(lookforward),
             prepend_sysid=int(prepend_sysid) if prepend_sysid else None,
             append_sysid=int(append_sysid)   if append_sysid  else None,
         )
         
-        # 標記 each snapshot 的 source
+        # 標記 each snapshot 的 source 與 Outlier 判定結果
         if "snapshots" in result:
             for snap in result["snapshots"]:
                 try:
                     ours = prod_loader.get_ours_row(date, term, snap["time_int"], int(strike))
-                    source = ours.get("c.source") if cp == "Call" else ours.get("p.source")
-                    snap["source"] = source
+                    prefix = "c." if cp == "Call" else "p."
+                    snap["source"] = ours.get(f"{prefix}source")
+                    snap["last_outlier"] = ours.get(f"{prefix}last_outlier")
+                    snap["min_outlier"] = ours.get(f"{prefix}min_outlier")
+                    snap["last_sysID"] = ours.get(f"{prefix}last_sysID")
+                    snap["min_sysID"] = ours.get(f"{prefix}min_sysID")
                 except Exception:
                     snap["source"] = None
+                    snap["last_outlier"] = None
+                    snap["min_outlier"] = None
+                    snap["last_sysID"] = None
+                    snap["min_sysID"] = None
 
         return jsonify(result)
     except Exception as e:

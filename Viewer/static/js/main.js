@@ -3,13 +3,12 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 const API_BASE = "/api";
+const perPage = 100; // API分頁數量
 
-// 分頁與篩選狀態
+// 在原有全域變數前面加入 perPage
 let currentDate = null;
 let currentPage = 1;
-const perPage = 200; // Updated to 200 as requested
 let currentColumnFilter = "all";
-let currentTickRow = null; // 儲存目前檢視明細的 row，供手動查詢 Tick 用
 
 async function init() {
     const dateSelect = document.getElementById("date-selector");
