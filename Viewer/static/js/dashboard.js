@@ -95,11 +95,11 @@ function renderVixChart(rows, alerts) {
 
         times.push(formattedTime);
         vixData.push({
-            value: row.vix > 0 ? row.vix : null, // 把 -1 當作 null 處理，讓圖斷開或是以 ori_vix 為主
+            value: row.vix > 0 ? Math.round(row.vix * 100) / 100 : null, // 四捨五入到小數點2位，與揭示值一致
             time_str: t
         });
         oriVixData.push({
-            value: row.ori_vix,
+            value: Math.round(row.ori_vix * 100) / 100, // 四捨五入到小數點2位
             time_str: t
         });
     });
@@ -174,7 +174,7 @@ function renderVixChart(rows, alerts) {
                 color: '#787774',
                 fontSize: 13,
                 formatter: function (value) {
-                    return value.toFixed(1); // 強制小數點第一位
+                    return value.toFixed(2); // 與揭示值/計算值一致，小數點2位
                 }
             }
         },
