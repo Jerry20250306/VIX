@@ -201,6 +201,7 @@ python validation/verify_step1.py 20251201
 
 - **[官方編製方法](docs/參考資料/官方編製方法.md)**: 台灣期貨交易所原始文件。
 - **[官方附錄文件](docs/參考資料/官方附錄文件.docx)**: 包含參數設定的原始 Word 檔。
+- **[Git 使用指南](docs/參考資料/Git使用指南.md)**: 專案常用的 Git 指令與 GitHub 工作流程。
 
 ### 🛠️ 專案管理 (Project Management)
 
