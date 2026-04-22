@@ -17,17 +17,17 @@ set FLASK_HOST=0.0.0.0
 
 echo.
 echo ===================================================
-echo   您的區域網路連線位址為: http://192.168.23.136:5000
+echo   您的區域網路連線位址為: http://192.168.23.136:5100
 echo ===================================================
 echo.
 
 :: 先嘗試關閉舊的 Server (避免重複開啟或 Port 被佔用)
 taskkill /f /im python.exe /fi "WINDOWTITLE eq VIX_SERVER_WINDOW" >nul 2>&1
-:: 或者是根據 Port 5000 來清理 (較為保險)
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5000 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+:: 或者是根據 Port 5100 來清理 (較為保險)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5100 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
 :: 啟動瀏覽器
-start http://localhost:5000
+start http://127.0.0.1:5100
 
 :: 啟動 Python Server (設定視窗標題方便後續清理)
 title VIX_SERVER_WINDOW

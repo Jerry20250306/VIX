@@ -1,7 +1,5 @@
 from flask import Flask, render_template, jsonify, request
 import os
-import glob
-import re
 import sys
 import pandas as pd
 from data_loader import DiffLoader, ProdLoader, SigmaDiffLoader
@@ -19,8 +17,12 @@ else:
     app = Flask(__name__)
 
 # 專案根目錄 (VIX/)
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)) # Viewer/
-BASE_DIR = os.path.dirname(PROJECT_ROOT) # VIX/
+if getattr(sys, 'frozen', False):
+    import os
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)) # Viewer/
+    BASE_DIR = os.path.dirname(PROJECT_ROOT) # VIX/
 
 # 初始化 Loader
 diff_loader = DiffLoader(os.path.join(BASE_DIR, "output"))
@@ -445,10 +447,31 @@ def get_sigma_diff():
 
 
 if __name__ == "__main__":
+    import socket
+    import threading
+    import webbrowser
+    import time
+    
+    def find_free_port(start=8080, end=8100):
+        for p in range(start, end):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(('localhost', p)) != 0:
+                    return p
+        raise RuntimeError("找不到可用的 port（8080-8099）")
+        
     host = os.environ.get("FLASK_HOST", "127.0.0.1")
-    port = int(os.environ.get("FLASK_PORT", 5000))
+    port = find_free_port(start=8080)
+    
+    url = f"http://{host if host != '0.0.0.0' else 'localhost'}:{port}"
+    
     print(f"專案根目錄: {BASE_DIR}")
-    print(f"啟動 Viewer... 請用瀏覽器開啟 http://{host if host != '0.0.0.0' else 'localhost'}:{port}")
+    print(f"啟動 Viewer... 請用瀏覽器開啟 {url}")
     if host == "0.0.0.0":
         print(f"提示：目前綁定 0.0.0.0，同網域的其他電腦可透過您的 IP 連入。")
-    app.run(host=host, debug=True, port=port)
+        
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open(url)
+        
+    threading.Thread(target=open_browser, daemon=True).start()
+    app.run(host=host, debug=False, port=port)

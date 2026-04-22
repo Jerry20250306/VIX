@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/jerry1016/.gemini/antigravity/VIX -type f -not -path */.git/* -not -path */__pycache__/* -not -path */.*)"
+    ]
+  }
+}

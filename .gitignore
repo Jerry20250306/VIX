@@ -42,3 +42,6 @@ temp_*
 vix_content_utf8.txt
 output/
 資料來源/
+# Build and Distribution
+build/
+dist/
