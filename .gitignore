@@ -16,7 +16,7 @@ venv/
 step0_*.html
 
 # Word 文件
-*.docx
+# *.docx
 
 # IDE
 .vscode/
